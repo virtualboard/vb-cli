@@ -1,0 +1,53 @@
+name: Validate Workflows
+
+on:
+  push:
+    paths:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+  pull_request:
+    paths:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+
+jobs:
+  validate-workflows:
+    name: Validate GitHub Actions Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install actionlint
+        run: |
+          bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          sudo mv ./actionlint /usr/local/bin/
+
+      - name: Validate workflow syntax
+        run: |
+          actionlint -color -verbose .github/workflows/*.yml
+
+      - name: Validate YAML syntax
+        run: |
+          for file in .github/workflows/*.yml .github/workflows/*.yaml; do
+            if [ -f "$file" ]; then
+              echo "Validating $file"
+              python3 -c "import yaml; yaml.safe_load(open('$file'))"
+            fi
+          done
+
+      - name: Check for unpinned action versions
+        run: |
+          echo 'Checking for unpinned action versions...'
+          grep -r 'uses:.*@main' .github/workflows/ || true
+          grep -r 'uses:.*@master' .github/workflows/ || true
+
+      - name: Check for custom secrets usage
+        run: |
+          echo 'Checking for custom secrets usage...'
+          grep -r 'secrets' .github/workflows/ || true
+
+      - name: Check for explicit permissions
+        run: |
+          echo 'Checking for explicit permissions...'
+          grep -r 'permissions:' .github/workflows/ || true

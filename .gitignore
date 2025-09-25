@@ -1,0 +1,39 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build and output directories
+/bin/
+/build/
+/dist/
+/out/
+
+# Go coverage and profiling files
+*.cover
+*.cov
+*.prof
+*.test
+coverage.html
+
+# Go caches
+.gocache/
+.gomodcache/
+
+# Logs
+*.log
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,52 @@
+{
+  "plugins": {
+    "md007": {
+      "enabled": true,
+      "indent": 2
+    },
+    "md013": {
+      "enabled": false,
+      "line_length": 120,
+      "code_blocks": false,
+      "tables": false,
+      "html": false
+    },
+    "md022": {
+      "enabled": false
+    },
+    "md033": {
+      "enabled": false
+    },
+    "md041": {
+      "enabled": false
+    },
+    "md024": {
+      "enabled": true,
+      "siblings_only": true
+    },
+    "md040": {
+      "enabled": false
+    },
+    "md029": {
+      "enabled": true,
+      "style": "ordered"
+    },
+    "md026": {
+      "enabled": true,
+      "punctuation": ".,;:!"
+    },
+    "md030": {
+      "enabled": true,
+      "ul_single": 1,
+      "ol_single": 1,
+      "ul_multi": 1,
+      "ol_multi": 1
+    },
+    "md036": {
+      "enabled": false
+    },
+    "md034": {
+      "enabled": false
+    }
+  }
+}
