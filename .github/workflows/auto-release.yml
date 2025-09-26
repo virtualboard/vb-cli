@@ -1,0 +1,595 @@
+name: Automatic Release
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Type of release to create"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+          - rc
+
+env:
+  GO_VERSION: "1.25"
+  BINARY_NAME: "vb"
+
+jobs:
+  determine-release:
+    name: Determine Release Type and Version
+    runs-on: ubuntu-latest
+    outputs:
+      should-release: ${{ steps.check.outputs.should-release }}
+      release-type: ${{ steps.check.outputs.release-type }}
+      version: ${{ steps.version.outputs.version }}
+      is-prerelease: ${{ steps.version.outputs.is-prerelease }}
+      tag-name: ${{ steps.version.outputs.tag-name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check if should release
+        id: check
+        run: |
+          # Check if this is a merge to main or dev
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            # Check if this is a merge from dev branch by looking at commit message
+            if git log -1 --pretty=%B | grep -Eq "Merge pull request.*from (.+/)?dev"; then
+              {
+                echo "should-release=true"
+                echo "release-type=final"
+              } >> "$GITHUB_OUTPUT"
+            else
+              {
+                echo "should-release=false"
+                echo "release-type=none"
+              } >> "$GITHUB_OUTPUT"
+            fi
+          elif [[ "${{ github.ref_name }}" == "dev" ]]; then
+            {
+              echo "should-release=true"
+              echo "release-type=rc"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "should-release=false"
+              echo "release-type=none"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get current version
+        id: current-version
+        run: |
+          # Fetch all tags from remote
+          git fetch --tags
+
+          # Get the latest tag from remote
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "current-version=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+          echo "Current version: $LATEST_TAG"
+
+      - name: Calculate new version
+        id: version
+        run: |
+          CURRENT_VERSION="${{ steps.current-version.outputs.current-version }}"
+          RELEASE_TYPE="${{ steps.check.outputs.release-type }}"
+          MANUAL_TYPE="${{ github.event.inputs.release_type }}"
+
+          # Remove 'v' prefix for processing and split suffix
+          VERSION_NO_PREFIX=${CURRENT_VERSION#v}
+          BASE_VERSION=${VERSION_NO_PREFIX%%-*}
+          SUFFIX=""
+          if [[ "$VERSION_NO_PREFIX" == *"-"* ]]; then
+            SUFFIX=${VERSION_NO_PREFIX#"$BASE_VERSION"}
+          fi
+
+          # Split base version into parts (ensure numeric fields)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+          PATCH=${PATCH:-0}
+
+          if [[ "$SUFFIX" =~ ^-rc(\..*)?$ ]]; then
+            IS_RC_SUFFIX="true"
+          else
+            IS_RC_SUFFIX="false"
+          fi
+
+          # Handle manual release type
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            case "$MANUAL_TYPE" in
+              "auto")
+                # Auto-determine based on branch
+                RELEASE_TYPE="${{ steps.check.outputs.release-type }}"
+                ;;
+              "patch")
+                RELEASE_TYPE="final"
+                PATCH=$((PATCH + 1))
+                ;;
+              "minor")
+                RELEASE_TYPE="final"
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              "major")
+                RELEASE_TYPE="final"
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              "rc")
+                RELEASE_TYPE="rc"
+                PATCH=$((PATCH + 1))
+                ;;
+            esac
+          fi
+
+          # Calculate new version based on release type
+          if [[ "$RELEASE_TYPE" == "rc" ]]; then
+            # For RC releases, increment patch when coming from a final release
+            if [[ "$IS_RC_SUFFIX" == "true" ]]; then
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}-rc"
+            else
+              PATCH=$((PATCH + 1))
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}-rc"
+            fi
+            IS_PRERELEASE="true"
+          elif [[ "$RELEASE_TYPE" == "final" ]]; then
+            # Promote RCs to final without bumping patch; otherwise increment patch
+            if [[ "$IS_RC_SUFFIX" == "true" ]]; then
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            else
+              PATCH=$((PATCH + 1))
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            fi
+            IS_PRERELEASE="false"
+          else
+            echo "Unknown release type: $RELEASE_TYPE"
+            exit 1
+          fi
+
+          # Check if tag already exists and increment if necessary
+          COUNTER=1
+          while git rev-parse "$NEW_VERSION" >/dev/null 2>&1; do
+            echo "Tag $NEW_VERSION already exists, trying with counter..."
+            if [[ "$RELEASE_TYPE" == "rc" ]]; then
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}-rc.${COUNTER}"
+            else
+              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}.${COUNTER}"
+            fi
+            COUNTER=$((COUNTER + 1))
+            if [ $COUNTER -gt 10 ]; then
+              echo "Too many attempts to find unique version"
+              exit 1
+            fi
+          done
+
+          {
+            echo "version=$NEW_VERSION"
+            echo "is-prerelease=$IS_PRERELEASE"
+            echo "tag-name=$NEW_VERSION"
+          } >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW_VERSION (prerelease: $IS_PRERELEASE)"
+
+  test:
+    name: Test and Scan
+    needs: determine-release
+    if: needs.determine-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests with coverage
+        run: make test
+
+      - name: Run security scan
+        run: make scan
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v5
+        if: success()
+        with:
+          files: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella
+
+  build:
+    name: Build for all platforms
+    needs: [determine-release, test]
+    if: needs.determine-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            platform: linux-amd64
+          - goos: linux
+            goarch: arm64
+            platform: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            platform: macos-amd64
+          - goos: darwin
+            goarch: arm64
+            platform: macos-arm64
+          - goos: windows
+            goarch: amd64
+            platform: windows-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Update version file
+        run: |
+          VERSION="${{ needs.determine-release.outputs.version }}"
+          echo "Updating version file to: $VERSION"
+
+          # Update the version file
+          sed -i "s/const Current = \".*\"/const Current = \"$VERSION\"/" internal/version/version.go
+
+          # Verify the update worked
+          echo "Version file after update:"
+          cat internal/version/version.go
+
+          # Double-check the version was set correctly
+          if grep -q "const Current = \"$VERSION\"" internal/version/version.go; then
+            echo "✅ Version file updated successfully to $VERSION"
+          else
+            echo "❌ Failed to update version file"
+            exit 1
+          fi
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w -X main.version=${{ needs.determine-release.outputs.version }}" -o dist/${{ env.BINARY_NAME }}-${{ matrix.platform }} .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.platform }}
+          path: dist/${{ env.BINARY_NAME }}-${{ matrix.platform }}
+
+  release:
+    name: Create Release
+    needs: [determine-release, build]
+    if: needs.determine-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          # Debug: List all files and directories
+          echo "Current directory contents:"
+          ls -la
+          echo "Looking for artifacts..."
+
+          # Process each artifact directory
+          for artifact_dir in ${{ env.BINARY_NAME }}-*; do
+            if [ -d "$artifact_dir" ]; then
+              echo "Processing artifact directory: $artifact_dir"
+
+              # Extract platform from directory name (e.g., vb-linux-amd64 -> linux-amd64)
+              platform=${artifact_dir#${{ env.BINARY_NAME }}-}
+
+              # The binary file should be directly in the artifact directory
+              binary_file="$artifact_dir/${{ env.BINARY_NAME }}-$platform"
+
+              if [ -f "$binary_file" ]; then
+                echo "Found binary: $binary_file"
+
+                # Add .exe extension for Windows
+                if [[ "$platform" == *"windows"* ]]; then
+                  cp "$binary_file" "$binary_file.exe"
+                  binary_file="$binary_file.exe"
+                fi
+
+                # Create tar.gz for Unix-like systems
+                if [[ "$platform" == *"linux"* ]] || [[ "$platform" == *"macos"* ]]; then
+                  tar -czf "release-assets/${{ env.BINARY_NAME }}-$platform.tar.gz" -C "$artifact_dir" "$(basename "$binary_file")"
+                  echo "Created: ${{ env.BINARY_NAME }}-$platform.tar.gz"
+                fi
+
+                # Create zip for Windows
+                if [[ "$platform" == *"windows"* ]]; then
+                  zip "release-assets/${{ env.BINARY_NAME }}-$platform.zip" "$binary_file"
+                  echo "Created: ${{ env.BINARY_NAME }}-$platform.zip"
+                fi
+              else
+                echo "No binary file found at $binary_file"
+                # List contents for debugging
+                echo "Contents of $artifact_dir:"
+                ls -la "$artifact_dir"
+              fi
+            fi
+          done
+
+          # Debug: List release-assets directory
+          echo "Release assets directory contents:"
+          ls -la release-assets/
+
+          # Verify we have the expected files
+          echo "Checking for expected binary packages:"
+          for platform in linux-amd64 linux-arm64 macos-amd64 macos-arm64 windows-amd64; do
+            if [[ "$platform" == *"windows"* ]]; then
+              if [ -f "release-assets/${{ env.BINARY_NAME }}-$platform.zip" ]; then
+                echo "✓ Found ${{ env.BINARY_NAME }}-$platform.zip"
+              else
+                echo "✗ Missing ${{ env.BINARY_NAME }}-$platform.zip"
+              fi
+            else
+              if [ -f "release-assets/${{ env.BINARY_NAME }}-$platform.tar.gz" ]; then
+                echo "✓ Found ${{ env.BINARY_NAME }}-$platform.tar.gz"
+              else
+                echo "✗ Missing ${{ env.BINARY_NAME }}-$platform.tar.gz"
+              fi
+            fi
+          done
+
+          # Create checksums only if there are files
+          cd release-assets
+          if [ "$(ls -A .)" ]; then
+            sha256sum ./* > checksums.txt
+            echo "Created checksums.txt"
+            cat checksums.txt
+          else
+            echo "No files found in release-assets directory"
+            exit 1
+          fi
+          cd ..
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.determine-release.outputs.version }}"
+          RELEASE_TYPE="${{ needs.determine-release.outputs.release-type }}"
+
+          # Generate changelog from git commits since last tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" "$PREVIOUS_TAG"..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s" --max-count=10)
+          fi
+
+          # Create release notes
+          if [[ "$RELEASE_TYPE" == "rc" ]]; then
+            TITLE="Release Candidate $VERSION"
+            DESCRIPTION="This is a release candidate for testing purposes. Please test thoroughly before using in production."
+          else
+            TITLE="Release $VERSION"
+            DESCRIPTION="This is a stable release ready for production use."
+          fi
+
+          cat > release-notes.md << EOF
+          ## $TITLE
+
+          $DESCRIPTION
+
+          ### Changes
+
+          $CHANGELOG
+
+          ### Installation
+
+          Download the appropriate binary for your platform:
+
+          - **Linux AMD64**: \`${{ env.BINARY_NAME }}-linux-amd64.tar.gz\`
+          - **Linux ARM64**: \`${{ env.BINARY_NAME }}-linux-arm64.tar.gz\`
+          - **macOS AMD64**: \`${{ env.BINARY_NAME }}-macos-amd64.tar.gz\`
+          - **macOS ARM64**: \`${{ env.BINARY_NAME }}-macos-arm64.tar.gz\`
+          - **Windows AMD64**: \`${{ env.BINARY_NAME }}-windows-amd64.zip\`
+
+          ### Verification
+
+          Verify the integrity of downloaded files using the provided checksums:
+
+          \`\`\`bash
+          sha256sum -c checksums.txt
+          \`\`\`
+          EOF
+
+          {
+            echo "title=$TITLE"
+            echo "changelog<<EOF"
+            cat release-notes.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit version update
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add internal/version/version.go
+          git commit -m "chore: bump version to ${{ needs.determine-release.outputs.version }}" || echo "No changes to commit"
+          git push origin HEAD
+
+      - name: Create Git Tag
+        run: |
+          echo "Attempting to create tag: ${{ needs.determine-release.outputs.tag-name }}"
+
+          # Check if tag already exists
+          if git rev-parse "${{ needs.determine-release.outputs.tag-name }}" >/dev/null 2>&1; then
+            echo "✅ Tag ${{ needs.determine-release.outputs.tag-name }} already exists"
+          else
+            # Try to create and push tag
+            if git tag -a "${{ needs.determine-release.outputs.tag-name }}" -m "Release ${{ needs.determine-release.outputs.tag-name }}" && git push origin "${{ needs.determine-release.outputs.tag-name }}"; then
+              echo "✅ Tag created and pushed successfully"
+            else
+              echo "❌ Failed to create/push tag"
+              echo "Error details:"
+              echo "Repository: ${{ github.repository }}"
+              echo "Organization: ${{ github.repository_owner }}"
+              echo ""
+              echo "Possible causes:"
+              echo "1. Organization-level rulesets blocking tag creation"
+              echo "2. Insufficient permissions for GITHUB_TOKEN"
+              echo "3. Branch protection rules affecting ref creation"
+              echo ""
+              echo "Solutions:"
+              echo "1. Check organization rulesets: https://github.com/${{ github.repository_owner }}/settings"
+              echo "2. Check repository settings: https://github.com/${{ github.repository }}/settings"
+              echo "3. Create tag manually: git tag ${{ needs.determine-release.outputs.tag-name }} && git push origin ${{ needs.determine-release.outputs.tag-name }}"
+              echo ""
+              echo "The release will continue without the git tag..."
+            fi
+          fi
+
+      - name: Create Release
+        id: create-release
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          tag_name: ${{ needs.determine-release.outputs.tag-name }}
+          name: ${{ steps.changelog.outputs.title }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: |
+            release-assets/*
+          draft: false
+          prerelease: ${{ needs.determine-release.outputs.is-prerelease }}
+          generate_release_notes: true
+          make_latest: ${{ needs.determine-release.outputs.release-type == 'final' }}
+
+      - name: Upload Release Assets as Artifacts
+        if: steps.create-release.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ needs.determine-release.outputs.tag-name }}
+          path: release-assets/
+          retention-days: 30
+
+      - name: Handle Release Creation Failure
+        if: steps.create-release.outcome == 'failure'
+        run: |
+          echo "❌ Release creation failed due to repository rules or existing tag"
+          echo "This is likely due to:"
+          echo "1. Repository rules blocking tag/release creation"
+          echo "2. Tag ${{ needs.determine-release.outputs.tag-name }} already exists"
+          echo ""
+          echo "The workflow will continue, but no release will be created."
+          echo "Release assets have been uploaded as workflow artifacts for manual release."
+          echo ""
+          echo "You may need to:"
+          echo "1. Check organization rulesets: https://github.com/${{ github.repository_owner }}/settings"
+          echo "2. Delete existing tag: git tag -d ${{ needs.determine-release.outputs.tag-name }} && git push origin --delete ${{ needs.determine-release.outputs.tag-name }}"
+          echo "3. Download the release assets from the workflow artifacts and create release manually"
+
+  homebrew:
+    name: Update Homebrew Formula
+    needs: [determine-release, release]
+    if: needs.determine-release.outputs.should-release == 'true' && needs.determine-release.outputs.release-type == 'final'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        run: |
+          VERSION="${{ needs.determine-release.outputs.version }}"
+          BINARY_NAME="${{ env.BINARY_NAME }}"
+
+          # Download the macOS ARM64 binary to calculate SHA256
+          curl -L -o "$BINARY_NAME-macos-arm64.tar.gz" "https://github.com/${{ github.repository }}/releases/download/$VERSION/$BINARY_NAME-macos-arm64.tar.gz"
+          SHA256=$(sha256sum "$BINARY_NAME-macos-arm64.tar.gz" | cut -d' ' -f1)
+
+          # Create or update the formula
+          cat > homebrew-tap/Formula/$BINARY_NAME.rb << EOF
+          class Vb < Formula
+            desc "Virtual Board CLI - A command-line tool for managing virtual boards"
+            homepage "https://github.com/${{ github.repository }}"
+            url "https://github.com/${{ github.repository }}/archive/$VERSION.tar.gz"
+            sha256 "$SHA256"
+            license "MIT"
+
+            depends_on "go" => :build
+
+            def install
+              system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=$VERSION"), "."
+            end
+
+            test do
+              system "\#{bin}/$BINARY_NAME", "version"
+            end
+          end
+          EOF
+
+      - name: Commit and push changes
+        run: |
+          cd homebrew-tap
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git diff --staged --quiet || git commit -m "Update ${{ env.BINARY_NAME }} to ${{ needs.determine-release.outputs.version }}"
+          git push

@@ -1,0 +1,142 @@
+name: Test Release Process
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to test (e.g., v1.0.0-test)"
+        required: true
+        default: "v1.0.0-test"
+        type: string
+
+jobs:
+  test-build:
+    name: Test Multi-platform Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            platform: linux-amd64
+          - goos: linux
+            goarch: arm64
+            platform: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            platform: macos-amd64
+          - goos: darwin
+            goarch: arm64
+            platform: macos-arm64
+          - goos: windows
+            goarch: amd64
+            platform: windows-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: make test
+
+      - name: Run security scan
+        run: make scan
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" -o dist/vb-${{ matrix.platform }} .
+
+      - name: Test binary
+        run: |
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            ./dist/vb-${{ matrix.platform }}.exe version
+            ./dist/vb-${{ matrix.platform }}.exe --help
+          else
+            ./dist/vb-${{ matrix.platform }} version
+            ./dist/vb-${{ matrix.platform }} --help
+          fi
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vb-${{ matrix.platform }}-test
+          path: dist/vb-${{ matrix.platform }}*
+
+  test-package:
+    name: Test Package Creation
+    needs: test-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+
+      - name: Create test packages
+        run: |
+          mkdir -p test-packages
+
+          # Process each binary file
+          for binary in vb-*; do
+            if [ -f "$binary" ]; then
+              # Extract platform from filename (e.g., vb-linux-amd64 -> linux-amd64)
+              platform=${binary#vb-}
+
+              # Add .exe extension for Windows
+              if [[ "$platform" == *"windows"* ]]; then
+                mv "$binary" "$binary.exe"
+                binary="$binary.exe"
+              fi
+
+              # Create tar.gz for Unix-like systems
+              if [[ "$platform" == *"linux"* ]] || [[ "$platform" == *"macos"* ]]; then
+                tar -czf "test-packages/vb-$platform.tar.gz" "$binary"
+              fi
+
+              # Create zip for Windows
+              if [[ "$platform" == *"windows"* ]]; then
+                zip "test-packages/vb-$platform.zip" "$binary"
+              fi
+            fi
+          done
+
+          # Create checksums
+          cd test-packages
+          sha256sum ./* > checksums.txt
+          cd ..
+
+          echo "Test packages created:"
+          ls -la test-packages/
+
+      - name: Upload test packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-packages
+          path: test-packages/

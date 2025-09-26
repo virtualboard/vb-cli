@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VirtualBoard CLI · vb</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f9fc;
+      --bg-alt: #ffffff;
+      --text: #121c2a;
+      --muted: #52606d;
+      --accent: #3b82f6;
+      --accent-dark: #1d4ed8;
+      --border: #d0d7e2;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    header {
+      background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 55%), var(--bg-alt);
+      padding: 4rem 1.5rem 3rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    .hero-title {
+      font-size: clamp(2.4rem, 4vw + 1rem, 3.6rem);
+      margin: 0;
+      letter-spacing: -0.04em;
+    }
+
+    .hero-tagline {
+      font-size: 1.2rem;
+      margin: 1rem 0;
+      color: var(--muted);
+      max-width: 620px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .hero-actions a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.75rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      border: 1px solid transparent;
+    }
+
+    .hero-actions a.primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 12px 30px rgba(59, 130, 246, 0.2);
+    }
+
+    .hero-actions a.primary:hover {
+      background: var(--accent-dark);
+      transform: translateY(-1px);
+    }
+
+    .hero-actions a.secondary {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text);
+    }
+
+    main section {
+      margin: 3.5rem 0;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2.5rem;
+      box-shadow: 0 18px 40px rgba(18, 28, 42, 0.08);
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.8rem;
+      letter-spacing: -0.02em;
+    }
+
+    p {
+      margin: 0.75rem 0;
+    }
+
+    ul {
+      padding-left: 1.1rem;
+    }
+
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      background: rgba(59, 130, 246, 0.08);
+      border-radius: 0.4rem;
+    }
+
+    code {
+      padding: 0.15rem 0.4rem;
+    }
+
+    pre {
+      padding: 1.2rem;
+      overflow-x: auto;
+      margin: 1.25rem 0;
+      white-space: pre-wrap;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+
+    article {
+      background: var(--bg);
+      border-radius: 0.9rem;
+      padding: 1.5rem;
+      border: 1px solid var(--border);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    }
+
+    footer {
+      text-align: center;
+      padding: 3rem 1.5rem 4rem;
+      color: var(--muted);
+    }
+
+    footer a {
+      color: var(--accent-dark);
+      text-decoration: none;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--accent-dark);
+      padding: 0.45rem 0.85rem;
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --bg-alt: #111c36;
+        --text: #f1f5f9;
+        --muted: #cbd5f5b3;
+        --border: #1e2a44;
+        --accent: #60a5fa;
+        --accent-dark: #3b82f6;
+      }
+
+      main section {
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      article {
+        background: rgba(15, 23, 42, 0.6);
+        box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
+      }
+
+      code, pre {
+        background: rgba(96, 165, 250, 0.12);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1 class="hero-title">VirtualBoard CLI</h1>
+      <p class="hero-tagline">The command-line companion for managing VirtualBoard feature specifications end-to-end. Scaffold new specs, enforce workflow rules, and publish stakeholder-friendly indexes from any repo.</p>
+      <div class="hero-actions">
+        <a class="primary" href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer">View on GitHub</a>
+        <a class="secondary" href="https://github.com/virtualboard/vb-cli/blob/main/docs/CLI.md" target="_blank" rel="noreferrer">Explore the CLI Reference</a>
+      </div>
+      <div class="badge-row">
+        <span class="badge">Tests · passing</span>
+        <span class="badge">Coverage · 100%</span>
+        <span class="badge">Release · v0.0.1</span>
+        <span class="badge">SemVer 2.0.0</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>Why VirtualBoard CLI?</h2>
+      <div class="grid two">
+        <article>
+          <h3>Workspace Bootstrap</h3>
+          <p>Initialise `.virtualboard/` with curated templates and metadata using <code>vb init</code>, no git dependencies required.</p>
+        </article>
+        <article>
+          <h3>Feature Lifecycle</h3>
+          <p>Create, update, move, delete, and lock feature specs with purpose-built commands that respect workflow guardrails.</p>
+        </article>
+        <article>
+          <h3>Validation + Indexing</h3>
+          <p>Enforce schema, workflow, and dependency rules with <code>vb validate</code>. Regenerate Markdown, JSON, and HTML indexes via <code>vb index</code>.</p>
+        </article>
+        <article>
+          <h3>Automation Friendly</h3>
+          <p>JSON output, dry-run support, and log streaming make it easy to plug VirtualBoard into CI/CD pipelines and bots.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Quick Start</h2>
+      <p>Install the CLI and explore the workspace helpers in minutes.</p>
+      <pre><code>go install github.com/virtualboard/vb-cli@latest
+vb --help
+
+# From your repository root
+vb init
+vb new "Awesome Feature" label1 label2
+vb validate all
+vb index</code></pre>
+      <p>All commands accept <code>--json</code>, <code>--dry-run</code>, <code>--verbose</code>, and <code>--root</code> flags to adapt to your tooling.</p>
+    </section>
+
+    <section>
+      <h2>Command Highlights</h2>
+      <div class="grid three">
+        <article>
+          <h3>Initialize</h3>
+          <p><code>vb init</code> downloads and expands the VirtualBoard template archive. Use <code>--force</code> to rebuild an existing workspace.</p>
+        </article>
+        <article>
+          <h3>New Feature</h3>
+          <p><code>vb new</code> scaffolds a spec with labels, front-matter, and canonical sections ready for backlog grooming.</p>
+        </article>
+        <article>
+          <h3>Move</h3>
+          <p><code>vb move</code> enforces workflow transitions and can assign owners in one command.</p>
+        </article>
+        <article>
+          <h3>Update</h3>
+          <p><code>vb update</code> patches fields or body sections to keep specs synchronised with product decisions.</p>
+        </article>
+        <article>
+          <h3>Validate</h3>
+          <p><code>vb validate</code> surfaces schema, dependency, and workflow issues early. Add <code>--fix</code> to reapply templates.</p>
+        </article>
+        <article>
+          <h3>Index &amp; Lock</h3>
+          <p><code>vb index</code> rebuilds stakeholder-friendly views, while <code>vb lock</code> coordinates collaborative edits.</p>
+        </article>
+      </div>
+      <p>See the <a href="https://github.com/virtualboard/vb-cli/blob/main/docs/CLI.md" target="_blank" rel="noreferrer">full CLI reference</a> for exhaustive command options and exit codes.</p>
+    </section>
+
+    <section>
+      <h2>Built for Teams</h2>
+      <div class="grid two">
+        <article>
+          <h3>Quality Gates</h3>
+          <p>Pre-commit hooks and GitHub Actions enforce <strong>100% coverage</strong>, gosec scanning, and multi-platform build checks on every change.</p>
+        </article>
+        <article>
+          <h3>Secure by Default</h3>
+          <p>Atomic file operations, strict permissions, and explicit lock semantics keep collaborative workspaces consistent.</p>
+        </article>
+        <article>
+          <h3>Template Driven</h3>
+          <p>The <code>internal/template</code> package codifies VirtualBoard spec expectations, so teams stay aligned on structure and content.</p>
+        </article>
+        <article>
+          <h3>Extensible Core</h3>
+          <p>Modular packages (<code>internal/feature</code>, <code>internal/indexer</code>, <code>internal/validator</code>, and more) make it straightforward to extend behaviour.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Contribute</h2>
+      <p>VirtualBoard CLI thrives with community feedback and contributions.</p>
+      <ul>
+        <li>Read the <a href="https://github.com/virtualboard/vb-cli/blob/main/README.md" target="_blank" rel="noreferrer">README</a> for a project overview.</li>
+        <li>Follow <a href="https://github.com/virtualboard/vb-cli/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noreferrer">development setup guidance</a> to run tests and scans locally.</li>
+        <li>Submit issues or pull requests via <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer">GitHub</a> and include the output of <code>make test</code> and <code>make scan</code>.</li>
+      </ul>
+      <p>Maintained by the VirtualBoard Engineering Guild with contributions from the community.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>VirtualBoard CLI · Released under the MIT License · <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer">github.com/virtualboard/vb-cli</a></p>
+  </footer>
+</body>
+</html>
