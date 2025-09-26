@@ -542,54 +542,54 @@ jobs:
           echo "2. Delete existing tag: git tag -d ${{ needs.determine-release.outputs.tag-name }} && git push origin --delete ${{ needs.determine-release.outputs.tag-name }}"
           echo "3. Download the release assets from the workflow artifacts and create release manually"
 
-  homebrew:
-    name: Update Homebrew Formula
-    needs: [determine-release, release]
-    if: needs.determine-release.outputs.should-release == 'true' && needs.determine-release.outputs.release-type == 'final'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout homebrew-tap
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ github.repository_owner }}/homebrew-tap
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: homebrew-tap
+  # homebrew:
+  #   name: Update Homebrew Formula
+  #   needs: [determine-release, release]
+  #   if: needs.determine-release.outputs.should-release == 'true' && needs.determine-release.outputs.release-type == 'final'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout homebrew-tap
+  #       uses: actions/checkout@v5
+  #       with:
+  #         repository: ${{ github.repository_owner }}/homebrew-tap
+  #         token: ${{ secrets.GITHUB_TOKEN }}
+  #         path: homebrew-tap
 
-      - name: Update formula
-        run: |
-          VERSION="${{ needs.determine-release.outputs.version }}"
-          BINARY_NAME="${{ env.BINARY_NAME }}"
+  #     - name: Update formula
+  #       run: |
+  #         VERSION="${{ needs.determine-release.outputs.version }}"
+  #         BINARY_NAME="${{ env.BINARY_NAME }}"
 
-          # Download the macOS ARM64 binary to calculate SHA256
-          curl -L -o "$BINARY_NAME-macos-arm64.tar.gz" "https://github.com/${{ github.repository }}/releases/download/$VERSION/$BINARY_NAME-macos-arm64.tar.gz"
-          SHA256=$(sha256sum "$BINARY_NAME-macos-arm64.tar.gz" | cut -d' ' -f1)
+  #         # Download the macOS ARM64 binary to calculate SHA256
+  #         curl -L -o "$BINARY_NAME-macos-arm64.tar.gz" "https://github.com/${{ github.repository }}/releases/download/$VERSION/$BINARY_NAME-macos-arm64.tar.gz"
+  #         SHA256=$(sha256sum "$BINARY_NAME-macos-arm64.tar.gz" | cut -d' ' -f1)
 
-          # Create or update the formula
-          cat > homebrew-tap/Formula/$BINARY_NAME.rb << EOF
-          class Vb < Formula
-            desc "Virtual Board CLI - A command-line tool for managing virtual boards"
-            homepage "https://github.com/${{ github.repository }}"
-            url "https://github.com/${{ github.repository }}/archive/$VERSION.tar.gz"
-            sha256 "$SHA256"
-            license "MIT"
+  #         # Create or update the formula
+  #         cat > homebrew-tap/Formula/$BINARY_NAME.rb << EOF
+  #         class Vb < Formula
+  #           desc "Virtual Board CLI - A command-line tool for managing virtual boards"
+  #           homepage "https://github.com/${{ github.repository }}"
+  #           url "https://github.com/${{ github.repository }}/archive/$VERSION.tar.gz"
+  #           sha256 "$SHA256"
+  #           license "MIT"
 
-            depends_on "go" => :build
+  #           depends_on "go" => :build
 
-            def install
-              system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=$VERSION"), "."
-            end
+  #           def install
+  #             system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=$VERSION"), "."
+  #           end
 
-            test do
-              system "\#{bin}/$BINARY_NAME", "version"
-            end
-          end
-          EOF
+  #           test do
+  #             system "\#{bin}/$BINARY_NAME", "version"
+  #           end
+  #         end
+  #         EOF
 
-      - name: Commit and push changes
-        run: |
-          cd homebrew-tap
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .
-          git diff --staged --quiet || git commit -m "Update ${{ env.BINARY_NAME }} to ${{ needs.determine-release.outputs.version }}"
-          git push
+  #     - name: Commit and push changes
+  #       run: |
+  #         cd homebrew-tap
+  #         git config --local user.email "action@github.com"
+  #         git config --local user.name "GitHub Action"
+  #         git add .
+  #         git diff --staged --quiet || git commit -m "Update ${{ env.BINARY_NAME }} to ${{ needs.determine-release.outputs.version }}"
+  #         git push
