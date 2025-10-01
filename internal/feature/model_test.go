@@ -11,7 +11,7 @@ title: Sample Feature
 status: backlog
 owner: tester
 priority: high
-complexity: low
+complexity: S
 created: 2023-01-01
 updated: 2023-01-02
 labels:
@@ -112,7 +112,7 @@ func TestSetFieldAndHelpers(t *testing.T) {
 		"status":       "review",
 		"owner":        "owner",
 		"priority":     "medium",
-		"complexity":   "high",
+		"complexity":   "L",
 		"created":      "2024-01-01",
 		"updated":      "2024-01-02",
 		"epic":         "Epic",

@@ -23,7 +23,7 @@ func TestGeneratorBuildAndRender(t *testing.T) {
 			Status:     "backlog",
 			Owner:      "",
 			Priority:   "medium",
-			Complexity: "low",
+			Complexity: "S",
 			Created:    "2023-01-01",
 			Updated:    "2023-01-01",
 			Labels:     []string{"alpha"},

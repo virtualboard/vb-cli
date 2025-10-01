@@ -106,7 +106,7 @@ func newFeature(mgr *feature.Manager, id, status, title string, labels []string)
 			Status:       status,
 			Owner:        "owner",
 			Priority:     "medium",
-			Complexity:   "low",
+			Complexity:   "S",
 			Created:      "2023-01-01",
 			Updated:      "2023-01-01",
 			Labels:       labels,

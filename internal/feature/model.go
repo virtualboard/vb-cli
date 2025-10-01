@@ -16,18 +16,18 @@ var frontmatterPattern = regexp.MustCompile(`(?s)^---\n(.*?)\n---\n(.*)$`)
 
 // FrontMatter represents the YAML header of a feature spec.
 type FrontMatter struct {
-	ID           string   `yaml:"id"`
-	Title        string   `yaml:"title"`
-	Status       string   `yaml:"status"`
-	Owner        string   `yaml:"owner"`
-	Priority     string   `yaml:"priority"`
-	Complexity   string   `yaml:"complexity"`
-	Created      string   `yaml:"created"`
-	Updated      string   `yaml:"updated"`
-	Labels       []string `yaml:"labels"`
-	Dependencies []string `yaml:"dependencies"`
-	Epic         string   `yaml:"epic"`
-	RiskNotes    string   `yaml:"risk_notes"`
+	ID           string   `yaml:"id" json:"id"`
+	Title        string   `yaml:"title" json:"title"`
+	Status       string   `yaml:"status" json:"status"`
+	Owner        string   `yaml:"owner" json:"owner"`
+	Priority     string   `yaml:"priority" json:"priority"`
+	Complexity   string   `yaml:"complexity" json:"complexity"`
+	Created      string   `yaml:"created" json:"created"`
+	Updated      string   `yaml:"updated" json:"updated"`
+	Labels       []string `yaml:"labels" json:"labels"`
+	Dependencies []string `yaml:"dependencies" json:"dependencies"`
+	Epic         string   `yaml:"epic" json:"epic"`
+	RiskNotes    string   `yaml:"risk_notes" json:"risk_notes"`
 }
 
 // Feature wraps a feature spec file with parsed components.

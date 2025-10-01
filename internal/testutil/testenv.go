@@ -41,7 +41,7 @@ title: Template Feature
 status: backlog
 owner: template
 priority: medium
-complexity: medium
+complexity: M
 created: 2023-01-01
 updated: 2023-01-01
 labels:
@@ -65,18 +65,20 @@ Additional details.
 	schema := `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["ID", "Title", "Status", "Created", "Updated"],
+  "required": ["id", "title", "status", "created", "updated"],
   "properties": {
-    "ID": {"type": "string"},
-    "Title": {"type": "string"},
-    "Status": {"type": "string"},
-    "Owner": {"type": "string"},
-    "Priority": {"type": "string"},
-    "Complexity": {"type": "string"},
-    "Created": {"type": "string"},
-    "Updated": {"type": "string"},
-    "Labels": {"type": "array", "items": {"type": "string"}},
-    "Dependencies": {"type": "array", "items": {"type": "string"}}
+    "id": {"type": "string"},
+    "title": {"type": "string"},
+    "status": {"type": "string"},
+    "owner": {"type": "string"},
+    "priority": {"type": "string"},
+    "complexity": {"type": "string", "enum": ["XS", "S", "M", "L", "XL"]},
+    "created": {"type": "string"},
+    "updated": {"type": "string"},
+    "labels": {"type": "array", "items": {"type": "string"}},
+    "dependencies": {"type": "array", "items": {"type": "string"}},
+    "epic": {"type": "string"},
+    "risk_notes": {"type": "string"}
   },
   "additionalProperties": true
 }`
