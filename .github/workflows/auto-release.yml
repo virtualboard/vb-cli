@@ -55,9 +55,14 @@ jobs:
               } >> "$GITHUB_OUTPUT"
             fi
           elif [[ "${{ github.ref_name }}" == "dev" ]]; then
+            # Commented out: Only release when merging to main, not on dev pushes
+            # {
+            #   echo "should-release=true"
+            #   echo "release-type=rc"
+            # } >> "$GITHUB_OUTPUT"
             {
-              echo "should-release=true"
-              echo "release-type=rc"
+              echo "should-release=false"
+              echo "release-type=none"
             } >> "$GITHUB_OUTPUT"
           else
             {
