@@ -2,7 +2,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](docs/DEVELOPMENT.md#development)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-blue.svg)](docs/DEVELOPMENT.md#development)
-[![Release](https://img.shields.io/badge/version-v0.0.3-informational.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/version-v0.1.0-informational.svg)](CHANGELOG.md)
 [![Semantic Versioning](https://img.shields.io/badge/semver-2.0.0-blue.svg)](https://semver.org/spec/v2.0.0.html)
 
 VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, and shipping feature specifications that live under `.virtualboard/`. It keeps teams in sync by scaffolding new specs, guarding workflow transitions, surfacing validation issues early, and generating stakeholder-friendly indexes.
@@ -13,6 +13,7 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 - Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`).
 - Validate schema, workflow, and dependency rules with `vb validate`, and regenerate indices in Markdown/JSON/HTML with `vb index`.
 - Apply opinionated templates and fixes (`vb template apply`) while maintaining 100% unit-test coverage and gosec-scanned code.
+- Self-update to the latest version with `vb upgrade`, which automatically detects your platform and downloads the appropriate binary from GitHub releases.
 
 ## Install & First Run
 
@@ -28,6 +29,7 @@ vb init               # bootstrap .virtualboard/
 vb new "Awesome Feature" label1 label2
 vb validate all       # ensure specs meet schema + workflow rules
 vb index              # emit .virtualboard/features/INDEX.md
+vb upgrade            # check for and install the latest version
 ```
 
 All commands support JSON/plain output, `--dry-run`, verbose logging, and respect the `.virtualboard` workspace root.

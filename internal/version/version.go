@@ -1,4 +1,4 @@
 package version
 
 // Current defines the CLI semantic version following https://semver.org/.
-const Current = "v0.0.3"
+const Current = "v0.1.0"

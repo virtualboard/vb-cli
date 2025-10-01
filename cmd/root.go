@@ -78,4 +78,5 @@ func registerCommands() {
 	rootCmd.AddCommand(newLockCommand())
 	rootCmd.AddCommand(newInitCommand())
 	rootCmd.AddCommand(newVersionCommand())
+	rootCmd.AddCommand(newUpgradeCommand())
 }

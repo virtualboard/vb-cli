@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.0] - 2025-01-27
+
+### Added
+
+- New `vb upgrade` command that automatically checks for newer versions on GitHub releases and upgrades the binary
+- Platform detection logic that automatically selects the correct binary for the current operating system and architecture
+- Safe binary replacement with automatic backup creation during the upgrade process
+- Support for Linux (amd64, 386, arm64, arm), macOS (amd64, arm64), and Windows (amd64, 386, arm64, arm) platforms
+- Comprehensive test coverage for the upgrade functionality including mock tests and integration tests
+- Updated CLI documentation with detailed upgrade command reference and platform support information
+
+### Changed
+
+- Updated README.md to include upgrade command in key capabilities and usage examples
+- Enhanced CLI reference documentation with upgrade command details and platform support information
+
 ## [v0.0.3] - 2025-01-27
 
 ### Fixed
