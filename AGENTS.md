@@ -38,7 +38,8 @@ Welcome! This document orients AI coding agents working on `vb-cli`. Follow thes
   - `docs/CLI.md` – command reference.
   - `docs/DEVELOPMENT.md` – build/test/gosec/versioning instructions.
   - `CHANGELOG.md` – semantic release notes.
-- **Always** update relevant documentation (`docs/` and `README.md`) when behaviour changes. Keep examples and command descriptions in sync.
+  - `docs/index.html` – update the HTML index if documentation or CLI behaviour changes.
+- **Always** update relevant documentation (`docs/`, `README.md`, and `docs/index.html`) when behaviour changes. Keep examples and command descriptions in sync.
 
 ## Versioning & Releases
 - Semantic Versioning (`internal/version/Current`).
@@ -51,7 +52,7 @@ Welcome! This document orients AI coding agents working on `vb-cli`. Follow thes
 - Mention the version bump in README badges or documentation if relevant.
 
 ## Agent Checklist Before Completion
-1. Review requirements and determine if external docs need updates (`docs/`, `README.md`). Apply updates.
+1. Review requirements and determine if external docs need updates (`docs/`, `README.md`, and `docs/index.html`). Apply updates.
 2. Decide on SemVer bump; update `internal/version/Current` and `CHANGELOG.md`.
 3. Ensure new functionality/tests reflect in docs.
 4. Run `make scan` and `make test` (or allow pre-commit to run them). Confirm both pass.
@@ -66,4 +67,4 @@ Welcome! This document orients AI coding agents working on `vb-cli`. Follow thes
 - Logging uses `sirupsen/logrus`; verbose mode writes to stderr or optional log file.
 - Index generation uses Go templates for HTML; keep additions thread-safe and deterministic.
 
-Stay consistent, keep docs current, and run the verification suite before finishing. EOF
+Stay consistent, keep docs current (including `docs/index.html`), and run the verification suite before finishing.

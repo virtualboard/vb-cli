@@ -11,8 +11,11 @@
       --bg-alt: #ffffff;
       --text: #121c2a;
       --muted: #52606d;
-      --accent: #3b82f6;
-      --accent-dark: #1d4ed8;
+      --accent: #00d4ff;
+      --accent-dark: #00a8cc;
+      --accent-secondary: #32d74b;
+      --accent-gradient: linear-gradient(135deg, #00d4ff 0%, #32d74b 100%);
+      --logo-bg: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
       --border: #d0d7e2;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
@@ -29,9 +32,75 @@
     }
 
     header {
-      background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 55%), var(--bg-alt);
+      background: radial-gradient(circle at top left, rgba(0, 212, 255, 0.15), transparent 60%), var(--bg-alt);
       padding: 4rem 1.5rem 3rem;
       border-bottom: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(30, 58, 138, 0.3);
+      flex-shrink: 0;
+      transition: transform 0.3s ease;
+    }
+
+    .logo:hover {
+      transform: scale(1.05);
+    }
+
+    .logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.3s ease;
+    }
+
+    .logo:hover img {
+      transform: scale(1.1);
+    }
+
+    .logo-text {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+
+    @media (max-width: 768px) {
+      .logo-container {
+        flex-direction: column;
+        text-align: center;
+        gap: 1rem;
+      }
+      
+      .logo {
+        width: 60px;
+        height: 60px;
+      }
+      
+      .logo-text {
+        font-size: 2rem;
+      }
+      
+      .hero-title {
+        font-size: 2rem;
+        text-align: center;
+      }
     }
 
     .container {
@@ -74,14 +143,15 @@
     }
 
     .hero-actions a.primary {
-      background: var(--accent);
+      background: var(--accent-gradient);
       color: #fff;
-      box-shadow: 0 12px 30px rgba(59, 130, 246, 0.2);
+      box-shadow: 0 12px 30px rgba(0, 212, 255, 0.25);
     }
 
     .hero-actions a.primary:hover {
-      background: var(--accent-dark);
+      background: linear-gradient(135deg, #00a8cc 0%, #28a745 100%);
       transform: translateY(-1px);
+      box-shadow: 0 16px 40px rgba(0, 212, 255, 0.35);
     }
 
     .hero-actions a.secondary {
@@ -115,7 +185,7 @@
 
     code, pre {
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      background: rgba(59, 130, 246, 0.08);
+      background: rgba(0, 212, 255, 0.08);
       border-radius: 0.4rem;
     }
 
@@ -173,7 +243,7 @@
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      background: rgba(59, 130, 246, 0.1);
+      background: rgba(0, 212, 255, 0.1);
       color: var(--accent-dark);
       padding: 0.45rem 0.85rem;
       border-radius: 999px;
@@ -188,8 +258,11 @@
         --text: #f1f5f9;
         --muted: #cbd5f5b3;
         --border: #1e2a44;
-        --accent: #60a5fa;
-        --accent-dark: #3b82f6;
+        --accent: #00d4ff;
+        --accent-dark: #00a8cc;
+        --accent-secondary: #32d74b;
+        --accent-gradient: linear-gradient(135deg, #00d4ff 0%, #32d74b 100%);
+        --logo-bg: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
       }
 
       main section {
@@ -202,7 +275,7 @@
       }
 
       code, pre {
-        background: rgba(96, 165, 250, 0.12);
+        background: rgba(0, 212, 255, 0.12);
       }
     }
   </style>
@@ -210,7 +283,13 @@
 <body>
   <header>
     <div class="container">
-      <h1 class="hero-title">VirtualBoard CLI</h1>
+      <div class="logo-container">
+        <div class="logo">
+          <img src="avatar.png" alt="VirtualBoard Logo" />
+        </div>
+        <h1 class="logo-text">virtualboard</h1>
+      </div>
+      <h2 class="hero-title">CLI</h2>
       <p class="hero-tagline">The command-line companion for managing VirtualBoard feature specifications end-to-end. Scaffold new specs, enforce workflow rules, and publish stakeholder-friendly indexes from any repo.</p>
       <div class="hero-actions">
         <a class="primary" href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer">View on GitHub</a>
@@ -219,7 +298,7 @@
       <div class="badge-row">
         <span class="badge">Tests · passing</span>
         <span class="badge">Coverage · 100%</span>
-        <span class="badge">Release · v0.0.1</span>
+        <span class="badge">Release · v0.1.2</span>
         <span class="badge">SemVer 2.0.0</span>
       </div>
     </div>
