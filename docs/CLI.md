@@ -71,6 +71,22 @@ Acquire, check, or release feature locks.
 ### `vb version`
 Print the CLI semantic version (supports JSON output).
 
+### `vb upgrade`
+Check for a newer version of vb on GitHub releases and upgrade the binary if available. The command automatically detects the current platform and downloads the appropriate binary for your system.
+
+**Behavior:**
+- Checks the latest release on GitHub
+- Compares with the current version
+- Downloads the platform-specific binary if an update is available
+- Safely replaces the current binary with the new one
+- Creates a backup during the replacement process
+- Supports JSON output format
+
+**Platform Support:**
+- Linux (amd64, 386, arm64, arm)
+- macOS (amd64, arm64)
+- Windows (amd64, 386, arm64, arm)
+
 ## Exit Codes
 
 `vb` surfaces rich exit codes to indicate validation errors, not found resources, lock conflicts, and more. Refer to `cmd/exit.go` for the complete list.
