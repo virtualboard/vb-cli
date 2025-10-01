@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.1] - 2025-01-27
+
+### Fixed
+
+- Fixed GitHub workflow validation issues in auto-release.yml
+- Resolved SC2034 warning by removing unused RELEASE_TYPE variable
+- Fixed SC1089 shell script syntax error in if-else-fi structure
+- All GitHub workflows now pass actionlint validation with 0 errors
+
 ## [v0.1.0] - 2025-01-27
 
 ### Added
@@ -17,6 +26,12 @@ All notable changes to this project will be documented in this file. The format 
 
 - Updated README.md to include upgrade command in key capabilities and usage examples
 - Enhanced CLI reference documentation with upgrade command details and platform support information
+
+### Fixed
+
+- Fixed auto-release workflow to use version from code instead of calculating from git tags
+- Corrected version mismatch issues where releases were tagged with incorrect version numbers
+- Improved release process robustness by ensuring tag names always match code version
 
 ## [v0.0.3] - 2025-01-27
 

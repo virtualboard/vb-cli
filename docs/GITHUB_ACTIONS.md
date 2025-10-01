@@ -146,11 +146,11 @@ Automatically creates releases based on branch merges:
    - **dev branch**: Always creates RC releases (feature branch → dev, or direct push to dev)
    - **main branch**: Creates final releases only when merging from the `dev` branch (merge commit must match `Merge pull request … from */dev`)
    - **Other branches**: No release
-3. **Get current version** - Finds the latest git tag
-4. **Calculate new version** - Automatically increments version:
-   - **dev branch**: Creates RC releases (e.g., `v1.0.1-rc`)
-   - **main branch (merge from dev)**: Creates final releases (e.g., `v1.0.1`)
-   - **Manual dispatch**: Supports patch, minor, major, or RC releases with optional counter to avoid tag collisions
+3. **Get current version** - Extracts version from `internal/version/version.go` (more reliable than git tags)
+4. **Use code version** - Uses the version directly from the code instead of calculating:
+   - **All branches**: Uses the version specified in `internal/version/version.go`
+   - **Manual dispatch**: Uses code version (manual version bumping requires updating the code first)
+   - **Tag replacement**: Automatically replaces existing tags if they don't match the code version
 
 #### Job 2: Test and Scan
 **Only runs if release should be created**
@@ -375,9 +375,11 @@ graph TD
 
 ## Version Management
 
-- **Consistent Versioning**: Release workflows extract version from `internal/version/version.go` instead of relying on tag names
+- **Consistent Versioning**: Both release and auto-release workflows extract version from `internal/version/version.go` instead of relying on tag names
 - **Prevents Tag Mismatches**: This approach prevents issues where manual tags don't match the code version
 - **Robust Release Process**: Ensures release names always match the actual code version
+- **Automatic Tag Replacement**: Auto-release workflow automatically replaces existing tags that don't match the code version
+- **Code-First Approach**: Version changes must be made in `internal/version/version.go` first, then committed
 - **Manual Tag Prevention**: Documentation warns against manual tag creation to maintain consistency
 
 ## Environment Variables
