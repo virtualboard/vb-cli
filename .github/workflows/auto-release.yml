@@ -83,7 +83,6 @@ jobs:
         id: version
         run: |
           CURRENT_VERSION="${{ steps.current-version.outputs.current-version }}"
-          RELEASE_TYPE="${{ steps.check.outputs.release-type }}"
           MANUAL_TYPE="${{ github.event.inputs.release_type }}"
 
           # Use the version from code directly - no calculation needed
@@ -415,24 +414,23 @@ jobs:
           # Create and push the tag
           if git tag -a "${{ needs.determine-release.outputs.tag-name }}" -m "Release ${{ needs.determine-release.outputs.tag-name }}" && git push origin "${{ needs.determine-release.outputs.tag-name }}"; then
             echo "✅ Tag created and pushed successfully"
-            else
-              echo "❌ Failed to create/push tag"
-              echo "Error details:"
-              echo "Repository: ${{ github.repository }}"
-              echo "Organization: ${{ github.repository_owner }}"
-              echo ""
-              echo "Possible causes:"
-              echo "1. Organization-level rulesets blocking tag creation"
-              echo "2. Insufficient permissions for GITHUB_TOKEN"
-              echo "3. Branch protection rules affecting ref creation"
-              echo ""
-              echo "Solutions:"
-              echo "1. Check organization rulesets: https://github.com/${{ github.repository_owner }}/settings"
-              echo "2. Check repository settings: https://github.com/${{ github.repository }}/settings"
-              echo "3. Create tag manually: git tag ${{ needs.determine-release.outputs.tag-name }} && git push origin ${{ needs.determine-release.outputs.tag-name }}"
-              echo ""
-              echo "The release will continue without the git tag..."
-            fi
+          else
+            echo "❌ Failed to create/push tag"
+            echo "Error details:"
+            echo "Repository: ${{ github.repository }}"
+            echo "Organization: ${{ github.repository_owner }}"
+            echo ""
+            echo "Possible causes:"
+            echo "1. Organization-level rulesets blocking tag creation"
+            echo "2. Insufficient permissions for GITHUB_TOKEN"
+            echo "3. Branch protection rules affecting ref creation"
+            echo ""
+            echo "Solutions:"
+            echo "1. Check organization rulesets: https://github.com/${{ github.repository_owner }}/settings"
+            echo "2. Check repository settings: https://github.com/${{ github.repository }}/settings"
+            echo "3. Create tag manually: git tag ${{ needs.determine-release.outputs.tag-name }} && git push origin ${{ needs.determine-release.outputs.tag-name }}"
+            echo ""
+            echo "The release will continue without the git tag..."
           fi
 
       - name: Create Release
