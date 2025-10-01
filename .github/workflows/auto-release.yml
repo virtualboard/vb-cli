@@ -155,6 +155,10 @@ jobs:
               NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
             fi
             IS_PRERELEASE="false"
+          elif [[ "$RELEASE_TYPE" == "none" ]]; then
+            # No release needed - use current version as placeholder
+            NEW_VERSION="$CURRENT_VERSION"
+            IS_PRERELEASE="false"
           else
             echo "Unknown release type: $RELEASE_TYPE"
             exit 1
