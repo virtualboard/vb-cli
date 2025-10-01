@@ -141,7 +141,7 @@ func newTestFeature(fix *testutil.Fixture, id, status, title string, labels []st
 			Status:       status,
 			Owner:        "owner",
 			Priority:     "medium",
-			Complexity:   "medium",
+			Complexity:   "M",
 			Created:      "2023-01-01",
 			Updated:      "2023-01-01",
 			Labels:       labels,
