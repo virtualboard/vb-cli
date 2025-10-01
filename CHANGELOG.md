@@ -18,6 +18,12 @@ All notable changes to this project will be documented in this file. The format 
 - Updated README.md to include upgrade command in key capabilities and usage examples
 - Enhanced CLI reference documentation with upgrade command details and platform support information
 
+### Fixed
+
+- Fixed auto-release workflow to use version from code instead of calculating from git tags
+- Corrected version mismatch issues where releases were tagged with incorrect version numbers
+- Improved release process robustness by ensuring tag names always match code version
+
 ## [v0.0.3] - 2025-01-27
 
 ### Fixed

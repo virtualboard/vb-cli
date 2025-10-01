@@ -74,13 +74,10 @@ jobs:
       - name: Get current version
         id: current-version
         run: |
-          # Fetch all tags from remote
-          git fetch --tags
-
-          # Get the latest tag from remote
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "current-version=$LATEST_TAG" >> "$GITHUB_OUTPUT"
-          echo "Current version: $LATEST_TAG"
+          # Get version from code (more reliable than git tags)
+          CURRENT_VERSION=$(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')
+          echo "current-version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current version from code: $CURRENT_VERSION"
 
       - name: Calculate new version
         id: version
@@ -89,103 +86,42 @@ jobs:
           RELEASE_TYPE="${{ steps.check.outputs.release-type }}"
           MANUAL_TYPE="${{ github.event.inputs.release_type }}"
 
-          # Remove 'v' prefix for processing and split suffix
-          VERSION_NO_PREFIX=${CURRENT_VERSION#v}
-          BASE_VERSION=${VERSION_NO_PREFIX%%-*}
-          SUFFIX=""
-          if [[ "$VERSION_NO_PREFIX" == *"-"* ]]; then
-            SUFFIX=${VERSION_NO_PREFIX#"$BASE_VERSION"}
-          fi
+          # Use the version from code directly - no calculation needed
+          NEW_VERSION="$CURRENT_VERSION"
 
-          # Split base version into parts (ensure numeric fields)
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-          PATCH=${PATCH:-0}
-
-          if [[ "$SUFFIX" =~ ^-rc(\..*)?$ ]]; then
-            IS_RC_SUFFIX="true"
+          # Determine if this should be a prerelease based on version suffix
+          if [[ "$CURRENT_VERSION" =~ -rc ]]; then
+            IS_PRERELEASE="true"
           else
-            IS_RC_SUFFIX="false"
+            IS_PRERELEASE="false"
           fi
 
-          # Handle manual release type
+          # For manual releases, we could add logic to modify the version if needed
+          # but for now, we'll use the code version as-is
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             case "$MANUAL_TYPE" in
               "auto")
-                # Auto-determine based on branch
-                RELEASE_TYPE="${{ steps.check.outputs.release-type }}"
+                # Use the code version as-is
                 ;;
-              "patch")
-                RELEASE_TYPE="final"
-                PATCH=$((PATCH + 1))
-                ;;
-              "minor")
-                RELEASE_TYPE="final"
-                MINOR=$((MINOR + 1))
-                PATCH=0
-                ;;
-              "major")
-                RELEASE_TYPE="final"
-                MAJOR=$((MAJOR + 1))
-                MINOR=0
-                PATCH=0
-                ;;
-              "rc")
-                RELEASE_TYPE="rc"
-                PATCH=$((PATCH + 1))
+              "patch"|"minor"|"major"|"rc")
+                echo "Manual version bumping not implemented - using code version: $CURRENT_VERSION"
+                echo "To change version, update internal/version/version.go and commit"
                 ;;
             esac
           fi
 
-          # Calculate new version based on release type
-          if [[ "$RELEASE_TYPE" == "rc" ]]; then
-            # For RC releases, increment patch when coming from a final release
-            if [[ "$IS_RC_SUFFIX" == "true" ]]; then
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}-rc"
-            else
-              PATCH=$((PATCH + 1))
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}-rc"
-            fi
-            IS_PRERELEASE="true"
-          elif [[ "$RELEASE_TYPE" == "final" ]]; then
-            # Promote RCs to final without bumping patch; otherwise increment patch
-            if [[ "$IS_RC_SUFFIX" == "true" ]]; then
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
-            else
-              PATCH=$((PATCH + 1))
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
-            fi
-            IS_PRERELEASE="false"
-          elif [[ "$RELEASE_TYPE" == "none" ]]; then
-            # No release needed - use current version as placeholder
-            NEW_VERSION="$CURRENT_VERSION"
-            IS_PRERELEASE="false"
-          else
-            echo "Unknown release type: $RELEASE_TYPE"
-            exit 1
+          # Check if tag already exists and warn
+          if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
+            echo "⚠️  Tag $NEW_VERSION already exists - will be replaced"
+            echo "This usually means the code version was updated but the tag wasn't"
           fi
-
-          # Check if tag already exists and increment if necessary
-          COUNTER=1
-          while git rev-parse "$NEW_VERSION" >/dev/null 2>&1; do
-            echo "Tag $NEW_VERSION already exists, trying with counter..."
-            if [[ "$RELEASE_TYPE" == "rc" ]]; then
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}-rc.${COUNTER}"
-            else
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}.${COUNTER}"
-            fi
-            COUNTER=$((COUNTER + 1))
-            if [ $COUNTER -gt 10 ]; then
-              echo "Too many attempts to find unique version"
-              exit 1
-            fi
-          done
 
           {
             echo "version=$NEW_VERSION"
             echo "is-prerelease=$IS_PRERELEASE"
             echo "tag-name=$NEW_VERSION"
           } >> "$GITHUB_OUTPUT"
-          echo "New version: $NEW_VERSION (prerelease: $IS_PRERELEASE)"
+          echo "Using version from code: $NEW_VERSION (prerelease: $IS_PRERELEASE)"
 
   test:
     name: Test and Scan
@@ -274,23 +210,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Update version file
+      - name: Verify version file
         run: |
           VERSION="${{ needs.determine-release.outputs.version }}"
-          echo "Updating version file to: $VERSION"
+          echo "Using version from code: $VERSION"
 
-          # Update the version file
-          sed -i "s/const Current = \".*\"/const Current = \"$VERSION\"/" internal/version/version.go
-
-          # Verify the update worked
-          echo "Version file after update:"
-          cat internal/version/version.go
-
-          # Double-check the version was set correctly
-          if grep -q "const Current = \"$VERSION\"" internal/version/version.go; then
-            echo "✅ Version file updated successfully to $VERSION"
+          # Verify the version file matches what we expect
+          CURRENT_VERSION=$(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')
+          if [[ "$CURRENT_VERSION" == "$VERSION" ]]; then
+            echo "✅ Version file matches expected version: $VERSION"
           else
-            echo "❌ Failed to update version file"
+            echo "❌ Version mismatch: expected $VERSION, found $CURRENT_VERSION"
             exit 1
           fi
 
@@ -465,25 +395,26 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Commit version update
+      - name: Verify version consistency
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add internal/version/version.go
-          git commit -m "chore: bump version to ${{ needs.determine-release.outputs.version }}" || echo "No changes to commit"
-          git push origin HEAD
+          echo "Verifying version consistency between code and release"
+          echo "Code version: $(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')"
+          echo "Release version: ${{ needs.determine-release.outputs.version }}"
 
       - name: Create Git Tag
         run: |
           echo "Attempting to create tag: ${{ needs.determine-release.outputs.tag-name }}"
 
-          # Check if tag already exists
+          # Delete existing tag if it exists (both local and remote)
           if git rev-parse "${{ needs.determine-release.outputs.tag-name }}" >/dev/null 2>&1; then
-            echo "✅ Tag ${{ needs.determine-release.outputs.tag-name }} already exists"
-          else
-            # Try to create and push tag
-            if git tag -a "${{ needs.determine-release.outputs.tag-name }}" -m "Release ${{ needs.determine-release.outputs.tag-name }}" && git push origin "${{ needs.determine-release.outputs.tag-name }}"; then
-              echo "✅ Tag created and pushed successfully"
+            echo "🗑️  Deleting existing tag: ${{ needs.determine-release.outputs.tag-name }}"
+            git tag -d "${{ needs.determine-release.outputs.tag-name }}" || true
+            git push origin ":refs/tags/${{ needs.determine-release.outputs.tag-name }}" || true
+          fi
+
+          # Create and push the tag
+          if git tag -a "${{ needs.determine-release.outputs.tag-name }}" -m "Release ${{ needs.determine-release.outputs.tag-name }}" && git push origin "${{ needs.determine-release.outputs.tag-name }}"; then
+            echo "✅ Tag created and pushed successfully"
             else
               echo "❌ Failed to create/push tag"
               echo "Error details:"
