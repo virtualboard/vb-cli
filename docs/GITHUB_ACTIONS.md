@@ -102,7 +102,7 @@ For each platform:
      - Windows: Binary files with `.exe` extension
    - Generates SHA256 checksums for all files
 4. **Generate changelog**:
-   - Extracts version from git tag
+   - Extracts version from code (`internal/version/version.go`) for consistency
    - Generates changelog from git commits since last tag
    - Creates release notes with installation instructions
    - Sets appropriate title (e.g., "Release v1.0.1" or "Release Candidate v1.0.1-rc")
@@ -372,6 +372,13 @@ graph TD
 - Security scans run on every build using gosec
 - Homebrew formula updates only occur for stable releases
 - Workflow validation ensures no security issues in CI/CD pipeline
+
+## Version Management
+
+- **Consistent Versioning**: Release workflows extract version from `internal/version/version.go` instead of relying on tag names
+- **Prevents Tag Mismatches**: This approach prevents issues where manual tags don't match the code version
+- **Robust Release Process**: Ensures release names always match the actual code version
+- **Manual Tag Prevention**: Documentation warns against manual tag creation to maintain consistency
 
 ## Environment Variables
 
