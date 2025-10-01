@@ -30,7 +30,7 @@ Triggers when version tags are pushed (e.g., `v1.0.0`):
 - **Automated Releases**: Creates GitHub releases with:
   - Changelog generation from git commits
   - Asset verification and checksums
-  - Platform-specific archives (tar.gz for Unix, zip for Windows)
+  - Platform-specific binaries (direct binary files)
 - **Homebrew Integration**: Updates Homebrew formula for macOS users
 
 ### Automatic Release Workflow (`.github/workflows/auto-release.yml`)

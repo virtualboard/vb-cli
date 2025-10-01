@@ -97,10 +97,9 @@ For each platform:
 1. **Checkout code** - Downloads the repository
 2. **Download all artifacts** - Retrieves all platform binaries
 3. **Prepare release assets**:
-   - Creates compressed packages for each platform:
-     - Linux/macOS: `.tar.gz` files
-     - Windows: `.zip` files
-   - Adds `.exe` extension to Windows binaries
+   - Copies binary files directly for each platform:
+     - Linux/macOS: Binary files without extension
+     - Windows: Binary files with `.exe` extension
    - Generates SHA256 checksums for all files
 4. **Generate changelog**:
    - Extracts version from git tag
@@ -108,7 +107,7 @@ For each platform:
    - Creates release notes with installation instructions
    - Sets appropriate title (e.g., "Release v1.0.1" or "Release Candidate v1.0.1-rc")
 5. **Create Release** - Publishes GitHub release with:
-   - All platform packages (tar.gz for Unix, zip for Windows)
+   - All platform binaries (direct binary files)
    - Checksums file
    - Generated release notes
    - Automatic prerelease detection for alpha/beta/rc tags
@@ -172,11 +171,11 @@ Same as CI workflow - runs comprehensive tests and security scans.
 **Only runs if release should be created**
 1. **Checkout code** - Downloads the repository with full history
 2. **Download all artifacts** - Retrieves all platform binaries
-3. **Prepare release assets** - Creates compressed packages and checksums:
+3. **Prepare release assets** - Creates binary files and checksums:
    - Downloads build artifacts from all platforms
-   - Creates platform-specific archives:
-     - Linux/macOS: `.tar.gz` files containing the binary
-     - Windows: `.zip` files containing the `.exe` binary
+   - Copies platform-specific binaries:
+     - Linux/macOS: Binary files without extension
+     - Windows: Binary files with `.exe` extension
    - Generates SHA256 checksums for all files
 4. **Generate changelog** - Creates release notes with:
    - Different titles and descriptions for RC vs final releases
@@ -300,7 +299,7 @@ Allows manual testing of the complete release process without creating actual re
 1. **Checkout code** - Downloads the repository
 2. **Download all artifacts** - Retrieves all platform binaries
 3. **Create test packages**:
-   - Creates compressed packages (same as release process)
+   - Creates binary files (same as release process)
    - Generates checksums
    - Lists created packages
 4. **Upload test packages** - Saves all test packages as artifacts
