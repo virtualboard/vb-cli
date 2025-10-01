@@ -109,20 +109,12 @@ jobs:
               # Extract platform from filename (e.g., vb-linux-amd64 -> linux-amd64)
               platform=${binary#vb-}
 
-              # Add .exe extension for Windows
+              # Add .exe extension for Windows and copy to test-packages
               if [[ "$platform" == *"windows"* ]]; then
-                mv "$binary" "$binary.exe"
-                binary="$binary.exe"
-              fi
-
-              # Create tar.gz for Unix-like systems
-              if [[ "$platform" == *"linux"* ]] || [[ "$platform" == *"macos"* ]]; then
-                tar -czf "test-packages/vb-$platform.tar.gz" "$binary"
-              fi
-
-              # Create zip for Windows
-              if [[ "$platform" == *"windows"* ]]; then
-                zip "test-packages/vb-$platform.zip" "$binary"
+                cp "$binary" "test-packages/vb-$platform.exe"
+              else
+                # Copy binary directly for Unix-like systems
+                cp "$binary" "test-packages/vb-$platform"
               fi
             fi
           done

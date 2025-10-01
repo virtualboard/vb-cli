@@ -150,18 +150,10 @@ jobs:
               if [ -f "$binary_file" ]; then
                 # Add .exe extension for Windows
                 if [[ "$platform" == *"windows"* ]]; then
-                  cp "$binary_file" "$binary_file.exe"
-                  binary_file="$binary_file.exe"
-                fi
-
-                # Create tar.gz for Unix-like systems
-                if [[ "$platform" == *"linux"* ]] || [[ "$platform" == *"macos"* ]]; then
-                  tar -czf "release-assets/${{ env.BINARY_NAME }}-$platform.tar.gz" -C "$artifact_dir" "$(basename "$binary_file")"
-                fi
-
-                # Create zip for Windows
-                if [[ "$platform" == *"windows"* ]]; then
-                  zip "release-assets/${{ env.BINARY_NAME }}-$platform.zip" "$binary_file"
+                  cp "$binary_file" "release-assets/${{ env.BINARY_NAME }}-$platform.exe"
+                else
+                  # Copy binary directly for Unix-like systems
+                  cp "$binary_file" "release-assets/${{ env.BINARY_NAME }}-$platform"
                 fi
               fi
             fi
@@ -180,8 +172,8 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Extract version from tag
-          VERSION=${GITHUB_REF#refs/tags/}
+          # Extract version from code (more reliable than tag name)
+          VERSION=$(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           # Generate changelog from git commits since last tag
@@ -202,11 +194,11 @@ jobs:
 
           Download the appropriate binary for your platform:
 
-          - **Linux AMD64**: \`${{ env.BINARY_NAME }}-linux-amd64.tar.gz\`
-          - **Linux ARM64**: \`${{ env.BINARY_NAME }}-linux-arm64.tar.gz\`
-          - **macOS AMD64**: \`${{ env.BINARY_NAME }}-macos-amd64.tar.gz\`
-          - **macOS ARM64**: \`${{ env.BINARY_NAME }}-macos-arm64.tar.gz\`
-          - **Windows AMD64**: \`${{ env.BINARY_NAME }}-windows-amd64.zip\`
+          - **Linux AMD64**: \`${{ env.BINARY_NAME }}-linux-amd64\`
+          - **Linux ARM64**: \`${{ env.BINARY_NAME }}-linux-arm64\`
+          - **macOS AMD64**: \`${{ env.BINARY_NAME }}-macos-amd64\`
+          - **macOS ARM64**: \`${{ env.BINARY_NAME }}-macos-arm64\`
+          - **Windows AMD64**: \`${{ env.BINARY_NAME }}-windows-amd64.exe\`
 
           ## Verification
 
@@ -226,8 +218,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ steps.changelog.outputs.version }}
+          name: Release ${{ steps.changelog.outputs.version }}
           body: ${{ steps.changelog.outputs.changelog }}
           files: |
             release-assets/*
@@ -249,12 +241,12 @@ jobs:
 
       - name: Update formula
         run: |
-          VERSION=${{ github.ref_name }}
+          VERSION=$(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')
           BINARY_NAME="${{ env.BINARY_NAME }}"
 
           # Download the macOS ARM64 binary to calculate SHA256
-          curl -L -o "$BINARY_NAME-macos-arm64.tar.gz" "https://github.com/${{ github.repository }}/releases/download/$VERSION/$BINARY_NAME-macos-arm64.tar.gz"
-          SHA256=$(sha256sum "$BINARY_NAME-macos-arm64.tar.gz" | cut -d' ' -f1)
+          curl -L -o "$BINARY_NAME-macos-arm64" "https://github.com/${{ github.repository }}/releases/download/$VERSION/$BINARY_NAME-macos-arm64"
+          SHA256=$(sha256sum "$BINARY_NAME-macos-arm64" | cut -d' ' -f1)
 
           # Create or update the formula
           cat > homebrew-tap/Formula/$BINARY_NAME.rb << EOF

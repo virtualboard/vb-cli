@@ -2,7 +2,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](docs/DEVELOPMENT.md#development)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-blue.svg)](docs/DEVELOPMENT.md#development)
-[![Release](https://img.shields.io/badge/version-v0.0.1-informational.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/version-v0.0.3-informational.svg)](CHANGELOG.md)
 [![Semantic Versioning](https://img.shields.io/badge/semver-2.0.0-blue.svg)](https://semver.org/spec/v2.0.0.html)
 
 VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, and shipping feature specifications that live under `.virtualboard/`. It keeps teams in sync by scaffolding new specs, guarding workflow transitions, surfacing validation issues early, and generating stakeholder-friendly indexes.
