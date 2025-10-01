@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.2] - 2025-01-27
+
+### Added
+
+- Added VirtualBoard logo integration to the landing page (docs/index.html)
+- Implemented responsive logo design with hover animations and mobile optimization
+
+### Changed
+
+- Updated landing page color theme to match VirtualBoard brand identity
+- Enhanced visual design with cyan-to-lime gradient accents and blue-to-purple logo background
+- Improved button styling and code highlighting to use the new brand colors
+- Updated badge styling and visual elements to maintain brand consistency
+
 ## [v0.1.1] - 2025-01-27
 
 ### Fixed
