@@ -172,8 +172,8 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Extract version from tag
-          VERSION=${GITHUB_REF#refs/tags/}
+          # Extract version from code (more reliable than tag name)
+          VERSION=$(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           # Generate changelog from git commits since last tag
@@ -218,8 +218,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ steps.changelog.outputs.version }}
+          name: Release ${{ steps.changelog.outputs.version }}
           body: ${{ steps.changelog.outputs.changelog }}
           files: |
             release-assets/*
@@ -241,7 +241,7 @@ jobs:
 
       - name: Update formula
         run: |
-          VERSION=${{ github.ref_name }}
+          VERSION=$(grep 'const Current = ' internal/version/version.go | sed 's/.*"\(.*\)".*/\1/')
           BINARY_NAME="${{ env.BINARY_NAME }}"
 
           # Download the macOS ARM64 binary to calculate SHA256

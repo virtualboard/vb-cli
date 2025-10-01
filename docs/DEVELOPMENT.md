@@ -71,6 +71,28 @@ Monitors workflow failures:
 
 `vb-cli` follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The current release is tracked in `internal/version` and published via the `vb version` command. Every change is recorded in [CHANGELOG.md](../CHANGELOG.md).
 
+### Version Management Best Practices
+
+**⚠️ IMPORTANT: Never create tags manually!**
+
+The project uses automated versioning through GitHub Actions. Manual tag creation can cause version mismatches and release issues.
+
+#### Correct Version Bump Process
+1. **Update Version**: Use the version bump script: `./scripts/version-bump.sh vX.Y.Z`
+2. **Update Changelog**: Add entries to `CHANGELOG.md`
+3. **Commit Changes**: `git add . && git commit -m "vX.Y.Z: description"`
+4. **Push to Trigger Release**: `git push origin main` (or `dev` for RC)
+
+#### What NOT to do
+- ❌ Don't create tags manually via `git tag` or GitHub UI
+- ❌ Don't create tags with different names than the version in code
+- ❌ Don't use version numbers that don't match `internal/version/version.go`
+
+#### Version Consistency
+- The tag name MUST match the version in `internal/version/version.go`
+- GitHub Actions uses the code version, not the tag name, for releases
+- Mismatched tags will cause incorrect release names and potential distribution issues
+
 ## Pre-commit Hooks
 
 Install pre-commit and enable hooks:
