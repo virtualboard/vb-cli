@@ -211,9 +211,12 @@ func (m *MockUpgrader) Upgrade(currentVersion string) error {
 	}
 
 	m.logger.Info("Replacing current binary...")
-	if err := m.ReplaceBinary(newBinaryPath); err != nil {
-		return fmt.Errorf("failed to replace binary: %w", err)
-	}
+	// Mock the binary replacement - just simulate success without actually replacing
+	// This avoids the "text file busy" error when trying to replace the test binary
+	m.logger.Debug("Mock binary replacement completed successfully")
+
+	// Clean up the temporary file
+	_ = os.Remove(newBinaryPath)
 
 	m.logger.Infof("Successfully upgraded to version %s", release.GetTagName())
 	return nil
