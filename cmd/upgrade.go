@@ -32,9 +32,9 @@ func newUpgradeCommand() *cobra.Command {
 					errorMsg := "upgrade failed: permission denied. Please run with sudo to upgrade the binary"
 					if opts.JSONOutput {
 						payload := map[string]interface{}{
-							"error": errorMsg,
+							"error":           errorMsg,
 							"current_version": version.Current,
-							"suggestion": "Run 'sudo vb upgrade' to upgrade the binary",
+							"suggestion":      "Run 'sudo vb upgrade' to upgrade the binary",
 						}
 						return respond(cmd, opts, false, "upgrade failed", payload)
 					}
@@ -43,7 +43,7 @@ func newUpgradeCommand() *cobra.Command {
 
 				if opts.JSONOutput {
 					payload := map[string]interface{}{
-						"error": err.Error(),
+						"error":           err.Error(),
 						"current_version": version.Current,
 					}
 					return respond(cmd, opts, false, "upgrade failed", payload)
@@ -54,10 +54,10 @@ func newUpgradeCommand() *cobra.Command {
 			// Handle different upgrade results
 			if opts.JSONOutput {
 				payload := map[string]interface{}{
-					"message": result.Message,
+					"message":         result.Message,
 					"current_version": result.CurrentVersion,
-					"latest_version": result.LatestVersion,
-					"upgraded": result.Upgraded,
+					"latest_version":  result.LatestVersion,
+					"upgraded":        result.Upgraded,
 				}
 				return respond(cmd, opts, true, "upgrade", payload)
 			}

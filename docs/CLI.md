@@ -77,7 +77,8 @@ Render the VirtualBoard logo as colored ASCII art in the terminal.
 **Behavior:**
 - Locates the avatar.png file in the docs/ directory
 - Converts the image to colored ASCII art using ANSI color codes
-- Scales the image to fit within 80 characters width
+- Scales the image to fit within 80 characters width with proper aspect ratio
+- Compensates for terminal character aspect ratio (2:1 height:width) to prevent stretching
 - Uses a range of ASCII characters from light to dark based on pixel brightness
 - Preserves original colors using 24-bit ANSI color codes
 
