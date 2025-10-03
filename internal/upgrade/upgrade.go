@@ -76,11 +76,18 @@ func (u *Upgrader) GetBinaryName() string {
 		arch = "amd64" // fallback
 	}
 
-	// Map Go OS names to common release naming conventions
+	// Map Go OS names to GitHub Actions release naming conventions
+	// This matches the platform names used in .github/workflows/release.yml and auto-release.yml
 	switch os {
+	case "darwin":
+		// macOS uses "macos" in the release asset names
+		return fmt.Sprintf("vb-macos-%s", arch)
+	case "linux":
+		return fmt.Sprintf("vb-linux-%s", arch)
 	case "windows":
-		return fmt.Sprintf("vb_%s_%s.exe", os, arch)
+		return fmt.Sprintf("vb-windows-%s.exe", arch)
 	default:
+		// Fallback to the old format for unknown OS
 		return fmt.Sprintf("vb_%s_%s", os, arch)
 	}
 }
