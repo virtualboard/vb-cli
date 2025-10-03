@@ -82,8 +82,17 @@ func findAvatarPath() (string, error) {
 
 // convertImageToASCII converts an image to colored ASCII art
 func convertImageToASCII(imagePath string) (string, error) {
+	// Validate the path to prevent directory traversal
+	cleanPath := filepath.Clean(imagePath)
+	if !filepath.IsAbs(cleanPath) {
+		// For relative paths, ensure they don't contain ".."
+		if filepath.HasPrefix(cleanPath, "..") {
+			return "", fmt.Errorf("invalid path: %s", imagePath)
+		}
+	}
+
 	// Open the image file
-	file, err := os.Open(imagePath)
+	file, err := os.Open(cleanPath)
 	if err != nil {
 		return "", err
 	}
@@ -138,10 +147,11 @@ func convertImageToASCII(imagePath string) (string, error) {
 				continue
 			}
 
-			// Convert to 0-255 range
-			r8 := uint8(r >> 8)
-			g8 := uint8(g >> 8)
-			b8 := uint8(b >> 8)
+			// Convert to 0-255 range, ensuring no overflow
+			// RGBA() returns values in range [0, 0xFFFF], after >> 8 values are in range [0, 0xFF]
+			r8 := uint8(r >> 8) // #nosec G115
+			g8 := uint8(g >> 8) // #nosec G115
+			b8 := uint8(b >> 8) // #nosec G115
 
 			// Calculate brightness (luminance)
 			brightness := float64(r8)*0.299 + float64(g8)*0.587 + float64(b8)*0.114

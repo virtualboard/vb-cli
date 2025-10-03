@@ -36,13 +36,13 @@ func TestArtCommand_Execute(t *testing.T) {
 				docsDir := filepath.Join(fixture.Root, "docs")
 				err := os.MkdirAll(docsDir, 0o750)
 				require.NoError(t, err)
-				
+
 				// Copy the real avatar.png if it exists
 				realAvatarPath := "docs/avatar.png"
 				if _, err := os.Stat(realAvatarPath); err == nil {
 					data, err := os.ReadFile(realAvatarPath)
 					require.NoError(t, err)
-					
+
 					avatarPath := filepath.Join(docsDir, "avatar.png")
 					err = os.WriteFile(avatarPath, data, 0o600)
 					require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestArtCommand_Execute(t *testing.T) {
 					err = os.WriteFile(avatarPath, []byte("fake_png_data"), 0o600)
 					require.NoError(t, err)
 				}
-				
+
 				return fixture
 			},
 			expectedError:  false,
@@ -77,12 +77,12 @@ func TestArtCommand_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := tt.setupFunc(t)
-			
+
 			// Change to the test directory
 			originalDir, err := os.Getwd()
 			require.NoError(t, err)
 			defer os.Chdir(originalDir)
-			
+
 			err = os.Chdir(fixture.Root)
 			require.NoError(t, err)
 
@@ -119,18 +119,18 @@ func TestArtCommand_Execute(t *testing.T) {
 
 func TestArtCommand_JSONOutput(t *testing.T) {
 	fixture := testutil.NewFixture(t)
-	
+
 	// Create docs directory and copy the real avatar.png
 	docsDir := filepath.Join(fixture.Root, "docs")
 	err := os.MkdirAll(docsDir, 0o750)
 	require.NoError(t, err)
-	
+
 	// Copy the real avatar.png if it exists
 	realAvatarPath := "docs/avatar.png"
 	if _, err := os.Stat(realAvatarPath); err == nil {
 		data, err := os.ReadFile(realAvatarPath)
 		require.NoError(t, err)
-		
+
 		avatarPath := filepath.Join(docsDir, "avatar.png")
 		err = os.WriteFile(avatarPath, data, 0o600)
 		require.NoError(t, err)
@@ -140,12 +140,12 @@ func TestArtCommand_JSONOutput(t *testing.T) {
 		err = os.WriteFile(avatarPath, []byte("fake_png_data"), 0o600)
 		require.NoError(t, err)
 	}
-	
+
 	// Change to the test directory
 	originalDir, err := os.Getwd()
 	require.NoError(t, err)
 	defer os.Chdir(originalDir)
-	
+
 	err = os.Chdir(fixture.Root)
 	require.NoError(t, err)
 
@@ -161,7 +161,7 @@ func TestArtCommand_JSONOutput(t *testing.T) {
 
 	// Execute the command
 	err = cmd.Execute()
-	
+
 	// We expect an error with fake data, but let's check the structure
 	if err != nil {
 		assert.Contains(t, err.Error(), "failed to convert image to ASCII")
@@ -188,11 +188,11 @@ func TestFindAvatarPath(t *testing.T) {
 				docsDir := filepath.Join(fixture.Root, "docs")
 				err := os.MkdirAll(docsDir, 0o750)
 				require.NoError(t, err)
-				
+
 				avatarPath := filepath.Join(docsDir, "avatar.png")
 				err = os.WriteFile(avatarPath, []byte("test_data"), 0o600)
 				require.NoError(t, err)
-				
+
 				return fixture.Root
 			},
 			expectedError: false,
@@ -206,16 +206,16 @@ func TestFindAvatarPath(t *testing.T) {
 				docsDir := filepath.Join(fixture.Root, "docs")
 				err := os.MkdirAll(docsDir, 0o750)
 				require.NoError(t, err)
-				
+
 				avatarPath := filepath.Join(docsDir, "avatar.png")
 				err = os.WriteFile(avatarPath, []byte("test_data"), 0o600)
 				require.NoError(t, err)
-				
+
 				// Create subdirectory
 				subDir := filepath.Join(fixture.Root, "subdir")
 				err = os.MkdirAll(subDir, 0o750)
 				require.NoError(t, err)
-				
+
 				return subDir
 			},
 			expectedError: false,
@@ -239,12 +239,12 @@ func TestFindAvatarPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rootDir := tt.setupFunc(t)
-			
+
 			// Change to the test directory
 			originalDir, err := os.Getwd()
 			require.NoError(t, err)
 			defer os.Chdir(originalDir)
-			
+
 			err = os.Chdir(rootDir)
 			require.NoError(t, err)
 
@@ -279,7 +279,7 @@ func TestConvertImageToASCII_RealAvatar(t *testing.T) {
 	asciiArt, err := convertImageToASCII(avatarPath)
 	require.NoError(t, err)
 	assert.NotEmpty(t, asciiArt)
-	
+
 	// Should contain ANSI color codes
 	assert.Contains(t, asciiArt, "\033[")
 	// Should contain newlines
