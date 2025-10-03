@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -24,26 +25,44 @@ func newUpgradeCommand() *cobra.Command {
 			upgrader := upgrade.NewUpgrader(opts.Logger())
 
 			// Perform the upgrade
-			if err := upgrader.Upgrade(version.Current); err != nil {
+			result, err := upgrader.Upgrade(version.Current)
+			if err != nil {
+				// Check if it's a permission error
+				if strings.Contains(err.Error(), "permission denied") {
+					errorMsg := "upgrade failed: permission denied. Please run with sudo to upgrade the binary"
+					if opts.JSONOutput {
+						payload := map[string]interface{}{
+							"error":           errorMsg,
+							"current_version": version.Current,
+							"suggestion":      "Run 'sudo vb upgrade' to upgrade the binary",
+						}
+						return respond(cmd, opts, false, "upgrade failed", payload)
+					}
+					return fmt.Errorf("%s", errorMsg)
+				}
+
 				if opts.JSONOutput {
 					payload := map[string]interface{}{
-						"error": err.Error(),
+						"error":           err.Error(),
+						"current_version": version.Current,
 					}
 					return respond(cmd, opts, false, "upgrade failed", payload)
 				}
 				return fmt.Errorf("upgrade failed: %w", err)
 			}
 
-			// Success response
-			payload := map[string]interface{}{
-				"message": "Upgrade completed successfully",
-			}
-
+			// Handle different upgrade results
 			if opts.JSONOutput {
+				payload := map[string]interface{}{
+					"message":         result.Message,
+					"current_version": result.CurrentVersion,
+					"latest_version":  result.LatestVersion,
+					"upgraded":        result.Upgraded,
+				}
 				return respond(cmd, opts, true, "upgrade", payload)
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "Upgrade completed successfully")
+			fmt.Fprintln(cmd.OutOrStdout(), result.Message)
 			return nil
 		},
 	}

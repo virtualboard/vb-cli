@@ -116,8 +116,13 @@ func convertImageToASCII(imagePath string) (string, error) {
 		scale = 1.0
 	}
 
+	// Adjust for terminal character aspect ratio (typically 2:1 height:width)
+	// This prevents the square image from appearing vertically stretched
+	aspectRatio := 2.0 // Terminal characters are roughly 2x taller than wide
+	scaleY := scale / aspectRatio
+
 	newWidth := int(float64(width) * scale)
-	newHeight := int(float64(height) * scale)
+	newHeight := int(float64(height) * scaleY)
 
 	// ASCII characters from darkest to lightest
 	asciiChars := []string{" ", ".", ":", ";", "o", "x", "%", "#", "@"}
@@ -128,7 +133,7 @@ func convertImageToASCII(imagePath string) (string, error) {
 		for x := 0; x < newWidth; x++ {
 			// Map scaled coordinates back to original image
 			srcX := int(float64(x) / scale)
-			srcY := int(float64(y) / scale)
+			srcY := int(float64(y) / scaleY)
 
 			// Ensure we don't go out of bounds
 			if srcX >= width {

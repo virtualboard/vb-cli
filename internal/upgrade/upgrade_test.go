@@ -168,7 +168,7 @@ type MockUpgrader struct {
 	mockRelease        *github.RepositoryRelease
 	mockError          error
 	checkForUpdateFunc func(string) (*github.RepositoryRelease, bool, error)
-	upgradeFunc        func(string) error
+	upgradeFunc        func(string) (*UpgradeResult, error)
 }
 
 func NewMockUpgrader(logger *logrus.Logger) *MockUpgrader {
@@ -194,7 +194,7 @@ func (m *MockUpgrader) CheckForUpdate(currentVersion string) (*github.Repository
 	return m.mockRelease, true, nil
 }
 
-func (m *MockUpgrader) Upgrade(currentVersion string) error {
+func (m *MockUpgrader) Upgrade(currentVersion string) (*UpgradeResult, error) {
 	if m.upgradeFunc != nil {
 		return m.upgradeFunc(currentVersion)
 	}
@@ -202,12 +202,17 @@ func (m *MockUpgrader) Upgrade(currentVersion string) error {
 	// Use the mock CheckForUpdate
 	release, hasUpdate, err := m.CheckForUpdate(currentVersion)
 	if err != nil {
-		return fmt.Errorf("failed to check for updates: %w", err)
+		return nil, fmt.Errorf("failed to check for updates: %w", err)
 	}
 
 	if !hasUpdate {
 		m.logger.Info("You are already running the latest version")
-		return nil
+		return &UpgradeResult{
+			Message:        fmt.Sprintf("You are already running the latest version (%s)", currentVersion),
+			CurrentVersion: currentVersion,
+			LatestVersion:  release.GetTagName(),
+			Upgraded:       false,
+		}, nil
 	}
 
 	m.logger.Infof("Found newer version: %s", release.GetTagName())
@@ -215,7 +220,7 @@ func (m *MockUpgrader) Upgrade(currentVersion string) error {
 
 	newBinaryPath, err := m.DownloadBinary(release)
 	if err != nil {
-		return fmt.Errorf("failed to download new binary: %w", err)
+		return nil, fmt.Errorf("failed to download new binary: %w", err)
 	}
 
 	m.logger.Info("Replacing current binary...")
@@ -227,7 +232,12 @@ func (m *MockUpgrader) Upgrade(currentVersion string) error {
 	_ = os.Remove(newBinaryPath)
 
 	m.logger.Infof("Successfully upgraded to version %s", release.GetTagName())
-	return nil
+	return &UpgradeResult{
+		Message:        fmt.Sprintf("Successfully upgraded from %s to %s", currentVersion, release.GetTagName()),
+		CurrentVersion: currentVersion,
+		LatestVersion:  release.GetTagName(),
+		Upgraded:       true,
+	}, nil
 }
 
 func (m *MockUpgrader) DownloadBinary(release *github.RepositoryRelease) (string, error) {
@@ -291,8 +301,11 @@ func TestUpgradeWithMock(t *testing.T) {
 	mockUpgrader.mockRelease = mockRelease
 
 	// Test upgrade with mock
-	err := mockUpgrader.Upgrade("v0.0.1")
+	result, err := mockUpgrader.Upgrade("v0.0.1")
 	assert.NoError(t, err)
+	assert.True(t, result.Upgraded)
+	assert.Equal(t, "v0.0.1", result.CurrentVersion)
+	assert.Equal(t, "v1.0.0", result.LatestVersion)
 }
 
 func TestUpgradeNoUpdateWithMock(t *testing.T) {
@@ -319,8 +332,11 @@ func TestUpgradeNoUpdateWithMock(t *testing.T) {
 	}
 
 	// Test upgrade with no update available
-	err := mockUpgrader.Upgrade("v1.0.0")
+	result, err := mockUpgrader.Upgrade("v1.0.0")
 	assert.NoError(t, err)
+	assert.False(t, result.Upgraded)
+	assert.Equal(t, "v1.0.0", result.CurrentVersion)
+	assert.Equal(t, "v1.0.0", result.LatestVersion)
 }
 
 func TestUpgradeCheckErrorWithMock(t *testing.T) {
@@ -331,8 +347,9 @@ func TestUpgradeCheckErrorWithMock(t *testing.T) {
 	mockUpgrader.mockError = fmt.Errorf("network error")
 
 	// Test upgrade with check error
-	err := mockUpgrader.Upgrade("v0.0.1")
+	result, err := mockUpgrader.Upgrade("v0.0.1")
 	assert.Error(t, err)
+	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "failed to check for updates")
 }
 
@@ -355,7 +372,8 @@ func TestUpgradeDownloadErrorWithMock(t *testing.T) {
 	mockUpgrader.mockRelease = mockRelease
 
 	// Test upgrade with download error
-	err := mockUpgrader.Upgrade("v0.0.1")
+	result, err := mockUpgrader.Upgrade("v0.0.1")
 	assert.Error(t, err)
+	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "failed to download new binary")
 }
