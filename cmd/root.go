@@ -79,4 +79,5 @@ func registerCommands() {
 	rootCmd.AddCommand(newInitCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newUpgradeCommand())
+	rootCmd.AddCommand(newArtCommand())
 }
