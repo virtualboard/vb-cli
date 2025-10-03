@@ -42,10 +42,18 @@ func TestGetBinaryName(t *testing.T) {
 		expectedArch = "amd64"
 	}
 
+	// Map Go OS names to GitHub Actions release naming conventions
 	var expectedName string
-	if expectedOS == "windows" {
-		expectedName = fmt.Sprintf("vb_%s_%s.exe", expectedOS, expectedArch)
-	} else {
+	switch expectedOS {
+	case "darwin":
+		// macOS uses "macos" in the release asset names
+		expectedName = fmt.Sprintf("vb-macos-%s", expectedArch)
+	case "linux":
+		expectedName = fmt.Sprintf("vb-linux-%s", expectedArch)
+	case "windows":
+		expectedName = fmt.Sprintf("vb-windows-%s.exe", expectedArch)
+	default:
+		// Fallback to the old format for unknown OS
 		expectedName = fmt.Sprintf("vb_%s_%s", expectedOS, expectedArch)
 	}
 
