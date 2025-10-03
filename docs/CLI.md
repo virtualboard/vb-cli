@@ -87,15 +87,24 @@ Check for a newer version of vb on GitHub releases and upgrade the binary if ava
 **Behavior:**
 - Checks the latest release on GitHub
 - Compares with the current version
-- Downloads the platform-specific binary if an update is available
+- If no update is available, shows current version and confirms you're up to date
+- If an update is available, downloads the platform-specific binary
 - Safely replaces the current binary with the new one
 - Creates a backup during the replacement process
+- Provides clear feedback about the upgrade status
 - Supports JSON output format
+
+**Output Messages:**
+- When up to date: "You are already running the latest version (vX.Y.Z)"
+- When upgraded: "Successfully upgraded from vX.Y.Z to vA.B.C"
+- When permission denied: "upgrade failed: permission denied. Please run with sudo to upgrade the binary"
 
 **Platform Support:**
 - Linux (amd64, 386, arm64, arm)
 - macOS (amd64, arm64)
 - Windows (amd64, 386, arm64, arm)
+
+**Note:** On Unix-like systems, you may need to run with `sudo` to upgrade the binary if it's installed in a system directory like `/usr/local/bin`.
 
 ## Exit Codes
 

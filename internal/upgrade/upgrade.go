@@ -220,18 +220,31 @@ func copyFile(src, dst string) error {
 	return destFile.Sync()
 }
 
+// UpgradeResult contains the result of an upgrade operation
+type UpgradeResult struct {
+	Message        string
+	CurrentVersion string
+	LatestVersion  string
+	Upgraded       bool
+}
+
 // Upgrade performs the complete upgrade process
-func (u *Upgrader) Upgrade(currentVersion string) error {
+func (u *Upgrader) Upgrade(currentVersion string) (*UpgradeResult, error) {
 	u.logger.Info("Checking for updates...")
 
 	release, hasUpdate, err := u.CheckForUpdate(currentVersion)
 	if err != nil {
-		return fmt.Errorf("failed to check for updates: %w", err)
+		return nil, fmt.Errorf("failed to check for updates: %w", err)
 	}
 
 	if !hasUpdate {
 		u.logger.Info("You are already running the latest version")
-		return nil
+		return &UpgradeResult{
+			Message:        fmt.Sprintf("You are already running the latest version (%s)", currentVersion),
+			CurrentVersion: currentVersion,
+			LatestVersion:  release.GetTagName(),
+			Upgraded:       false,
+		}, nil
 	}
 
 	u.logger.Infof("Found newer version: %s", release.GetTagName())
@@ -239,14 +252,19 @@ func (u *Upgrader) Upgrade(currentVersion string) error {
 
 	newBinaryPath, err := u.DownloadBinary(release)
 	if err != nil {
-		return fmt.Errorf("failed to download new binary: %w", err)
+		return nil, fmt.Errorf("failed to download new binary: %w", err)
 	}
 
 	u.logger.Info("Replacing current binary...")
 	if err := u.ReplaceBinary(newBinaryPath); err != nil {
-		return fmt.Errorf("failed to replace binary: %w", err)
+		return nil, fmt.Errorf("failed to replace binary: %w", err)
 	}
 
 	u.logger.Infof("Successfully upgraded to version %s", release.GetTagName())
-	return nil
+	return &UpgradeResult{
+		Message:        fmt.Sprintf("Successfully upgraded from %s to %s", currentVersion, release.GetTagName()),
+		CurrentVersion: currentVersion,
+		LatestVersion:  release.GetTagName(),
+		Upgraded:       true,
+	}, nil
 }
