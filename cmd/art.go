@@ -48,9 +48,15 @@ func newArtCommand() *cobra.Command {
 	}
 }
 
-// findAvatarPath locates the avatar.png file in the docs directory
+// findAvatarPath locates the logo.png (or avatar.png) file in the docs directory
 func findAvatarPath() (string, error) {
-	// Try relative to current directory first
+	// Try logo.png first (new logo without white background)
+	logoPath := "docs/logo.png"
+	if _, err := os.Stat(logoPath); err == nil {
+		return logoPath, nil
+	}
+
+	// Fall back to avatar.png for backward compatibility
 	avatarPath := "docs/avatar.png"
 	if _, err := os.Stat(avatarPath); err == nil {
 		return avatarPath, nil
@@ -65,7 +71,13 @@ func findAvatarPath() (string, error) {
 	// Walk up the directory tree to find the project root
 	currentDir := wd
 	for {
-		testPath := filepath.Join(currentDir, "docs", "avatar.png")
+		// Try logo.png first
+		testPath := filepath.Join(currentDir, "docs", "logo.png")
+		if _, err := os.Stat(testPath); err == nil {
+			return testPath, nil
+		}
+		// Try avatar.png as fallback
+		testPath = filepath.Join(currentDir, "docs", "avatar.png")
 		if _, err := os.Stat(testPath); err == nil {
 			return testPath, nil
 		}
@@ -77,7 +89,7 @@ func findAvatarPath() (string, error) {
 		currentDir = parent
 	}
 
-	return "", fmt.Errorf("avatar.png not found in docs/ directory")
+	return "", fmt.Errorf("logo.png or avatar.png not found in docs/ directory")
 }
 
 // convertImageToASCII converts an image to colored ASCII art
@@ -109,23 +121,24 @@ func convertImageToASCII(imagePath string) (string, error) {
 	width := bounds.Dx()
 	height := bounds.Dy()
 
-	// Calculate scaling factor to fit in terminal (max 80 chars wide)
-	maxWidth := 80
+	// Calculate scaling factor to fit in terminal (max 100 chars wide for better detail)
+	maxWidth := 100
 	scale := float64(maxWidth) / float64(width)
 	if scale > 1.0 {
 		scale = 1.0
 	}
 
 	// Adjust for terminal character aspect ratio (typically 2:1 height:width)
-	// This prevents the square image from appearing vertically stretched
+	// This prevents the circular image from appearing vertically stretched
 	aspectRatio := 2.0 // Terminal characters are roughly 2x taller than wide
 	scaleY := scale / aspectRatio
 
 	newWidth := int(float64(width) * scale)
 	newHeight := int(float64(height) * scaleY)
 
-	// ASCII characters from darkest to lightest
-	asciiChars := []string{" ", ".", ":", ";", "o", "x", "%", "#", "@"}
+	// ASCII characters from lightest to darkest for better visibility
+	// Using more granular characters for smoother gradients
+	asciiChars := []string{" ", ".", ":", "-", "=", "+", "*", "#", "@", "█"}
 
 	var result string
 
@@ -158,16 +171,22 @@ func convertImageToASCII(imagePath string) (string, error) {
 			g8 := uint8(g >> 8) // #nosec G115
 			b8 := uint8(b >> 8) // #nosec G115
 
-			// Calculate brightness (luminance)
+			// Calculate brightness (luminance) using standard formula
 			brightness := float64(r8)*0.299 + float64(g8)*0.587 + float64(b8)*0.114
 
-			// Map brightness to ASCII character
+			// Map brightness to ASCII character (inverted so dark=space, light=solid)
 			charIndex := int(brightness * float64(len(asciiChars)-1) / 255.0)
 			if charIndex >= len(asciiChars) {
 				charIndex = len(asciiChars) - 1
 			}
 
-			// Add ANSI color code for the character
+			// For very low alpha, use space regardless of brightness
+			if a < 0x3000 {
+				result += " "
+				continue
+			}
+
+			// Add ANSI color code for the character with the actual pixel color
 			ansiColor := fmt.Sprintf("\033[38;2;%d;%d;%dm", r8, g8, b8)
 			result += ansiColor + asciiChars[charIndex]
 		}

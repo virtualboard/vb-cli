@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.6] - 2025-01-27
+
+### Changed
+
+- Enhanced `vb art` command ASCII character set for smoother gradients (now uses `. : - = + * # @ █`)
+- Increased ASCII art output width from 80 to 100 characters for better detail
+- Improved brightness mapping and alpha transparency handling in ASCII conversion
+- Updated logo search to prefer `docs/logo.png` over `docs/avatar.png` for dark background support
+
+### Fixed
+
+- Corrected ASCII art character progression from lightest to darkest for proper image rendering
+- Enhanced low-alpha pixel handling to display as spaces for better transparency support
+
 ## [v0.1.5] - 2025-01-27
 
 ### Fixed
