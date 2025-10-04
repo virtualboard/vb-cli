@@ -13,7 +13,6 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 - Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`).
 - Validate schema, workflow, and dependency rules with `vb validate`, and regenerate indices in Markdown/JSON/HTML with `vb index`.
 - Apply opinionated templates and fixes (`vb template apply`) while maintaining 100% unit-test coverage and gosec-scanned code.
-- Display the VirtualBoard logo as beautiful colored ASCII art with `vb art`.
 - Self-update to the latest version with `vb upgrade`, which automatically detects your platform and downloads the appropriate binary from GitHub releases.
 
 ## Install & First Run
