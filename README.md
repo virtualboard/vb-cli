@@ -15,12 +15,58 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 - Apply opinionated templates and fixes (`vb template apply`) while maintaining 100% unit-test coverage and gosec-scanned code.
 - Self-update to the latest version with `vb upgrade`, which automatically detects your platform and downloads the appropriate binary from GitHub releases.
 
-## Install & First Run
+## Download & Install
+
+### Download Platform-Specific Binaries
+
+Choose your platform and download the appropriate binary from our latest release:
+
+- **macOS ARM64 (Apple Silicon):** [Download `vb-macos-arm64`](https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-arm64)
+- **macOS AMD64 (Intel):** [Download `vb-macos-amd64`](https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-amd64)
+- **Linux AMD64:** [Download `vb-linux-amd64`](https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-amd64)
+- **Linux ARM64:** [Download `vb-linux-arm64`](https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-arm64)
+- **Windows AMD64:** [Download `vb-windows-amd64.exe`](https://github.com/virtualboard/vb-cli/releases/latest/download/vb-windows-amd64.exe)
+
+### Platform-Specific Installation
+
+#### macOS
+
+1. **Download the appropriate binary** for your architecture (ARM64 for Apple Silicon, AMD64 for Intel)
+2. **Move to system path:**
+
+   ```bash
+   sudo mv vb-macos-[architecture] /usr/local/bin/vb
+   sudo chmod +x /usr/local/bin/vb
+   ```
+
+   Replace `[architecture]` with `arm64` or `amd64` as appropriate.
+
+#### Linux
+
+1. **Download the appropriate binary** for your architecture (AMD64 or ARM64)
+2. **Move to system path:**
+
+   ```bash
+   sudo mv vb-linux-[architecture] /usr/local/bin/vb
+   sudo chmod +x /usr/local/bin/vb
+   ```
+
+   Replace `[architecture]` with `amd64` or `arm64` as appropriate.
+
+#### Windows
+
+1. **Download the Windows binary** (`vb-windows-amd64.exe`)
+2. **Move to a directory in your PATH** (e.g., `C:\Program Files\vb-cli\`)
+3. **Optionally rename** to `vb.exe` for convenience
+4. **Add to PATH** if the directory isn't already included
+
+### Verify Installation
 
 ```bash
-go install github.com/virtualboard/vb-cli@latest
-vb --help
+vb version
 ```
+
+### First Run
 
 From your repository root:
 

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install · VirtualBoard CLI</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f9fc;
+      --bg-alt: #ffffff;
+      --text: #121c2a;
+      --muted: #52606d;
+      --accent: #00d4ff;
+      --accent-dark: #00a8cc;
+      --accent-secondary: #32d74b;
+      --accent-gradient: linear-gradient(135deg, #00d4ff 0%, #32d74b 100%);
+      --logo-bg: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+      --border: #d0d7e2;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    nav {
+      background: var(--bg-alt);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(18, 28, 42, 0.08);
+    }
+
+    nav .container {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 0;
+      gap: 1rem;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 1.2rem;
+    }
+
+    .nav-main {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex: 1;
+      justify-content: flex-end;
+    }
+
+    .github-link {
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      transition: color 0.2s ease;
+    }
+
+    .github-link:hover {
+      color: var(--accent-dark);
+    }
+
+    .github-link svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .nav-brand .logo-small {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      overflow: hidden;
+    }
+
+    .nav-brand .logo-small img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: var(--muted);
+      font-weight: 500;
+      transition: color 0.2s ease;
+      position: relative;
+    }
+
+    .nav-links a:hover,
+    .nav-links a.active {
+      color: var(--accent-dark);
+    }
+
+    .nav-links a.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1.25rem;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent-gradient);
+    }
+
+    @media (max-width: 768px) {
+      nav .container {
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .nav-links {
+        gap: 1rem;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+    }
+
+    header {
+      background: radial-gradient(circle at top left, rgba(0, 212, 255, 0.15), transparent 60%), var(--bg-alt);
+      padding: 3rem 1.5rem 2.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    .page-title {
+      font-size: clamp(2rem, 4vw + 1rem, 2.8rem);
+      margin: 0;
+      letter-spacing: -0.03em;
+    }
+
+    .page-tagline {
+      font-size: 1.1rem;
+      margin: 0.75rem 0 0;
+      color: var(--muted);
+      max-width: 620px;
+    }
+
+    main {
+      padding-bottom: 2rem;
+    }
+
+    main section {
+      margin: 3.5rem 0;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2.5rem;
+      box-shadow: 0 18px 40px rgba(18, 28, 42, 0.08);
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.8rem;
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      margin-top: 0;
+      font-size: 1.25rem;
+    }
+
+    p {
+      margin: 0.75rem 0;
+    }
+
+    ul, ol {
+      padding-left: 1.5rem;
+    }
+
+    li {
+      margin: 0.5rem 0;
+    }
+
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      background: rgba(0, 212, 255, 0.08);
+      border-radius: 0.4rem;
+    }
+
+    code {
+      padding: 0.15rem 0.4rem;
+    }
+
+    pre {
+      padding: 1.2rem;
+      overflow-x: auto;
+      margin: 1.25rem 0;
+      white-space: pre-wrap;
+    }
+
+    .download-buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin: 2rem 0;
+    }
+
+    .download-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1.5rem;
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 0.9rem;
+      text-decoration: none;
+      color: var(--text);
+      transition: all 0.2s ease;
+      font-weight: 600;
+    }
+
+    .download-btn:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0, 212, 255, 0.2);
+    }
+
+    .download-btn svg {
+      width: 48px;
+      height: 48px;
+      fill: var(--accent-dark);
+    }
+
+    .download-btn .platform-name {
+      font-size: 1.1rem;
+    }
+
+    .download-btn .platform-arch {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .platform-instructions {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 0.9rem;
+      padding: 2rem;
+      margin: 2rem 0;
+    }
+
+    .platform-instructions h3 {
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .platform-instructions svg {
+      width: 32px;
+      height: 32px;
+      fill: var(--accent-dark);
+    }
+
+    footer {
+      text-align: center;
+      padding: 3rem 1.5rem 4rem;
+      color: var(--muted);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --bg-alt: #111c36;
+        --text: #f1f5f9;
+        --muted: #cbd5f5b3;
+        --border: #1e2a44;
+        --accent: #00d4ff;
+        --accent-dark: #00a8cc;
+        --accent-secondary: #32d74b;
+        --accent-gradient: linear-gradient(135deg, #00d4ff 0%, #32d74b 100%);
+        --logo-bg: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+      }
+
+      main section {
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      .platform-instructions {
+        background: rgba(15, 23, 42, 0.6);
+      }
+
+      code, pre {
+        background: rgba(0, 212, 255, 0.12);
+      }
+
+      nav {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      .download-btn {
+        background: rgba(15, 23, 42, 0.6);
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <a href="index.html" class="nav-brand">
+        <div class="logo-small">
+          <img src="avatar.png" alt="VirtualBoard CLI" />
+        </div>
+        <span>VirtualBoard CLI</span>
+      </a>
+      <div class="nav-main">
+        <ul class="nav-links">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="install.html" class="active">Install</a></li>
+          <li><a href="workflow.html">Workflow</a></li>
+          <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer">Template</a></li>
+        </ul>
+        <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="github-link" aria-label="GitHub">
+          <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <header>
+    <div class="container">
+      <h1 class="page-title">Install VirtualBoard CLI</h1>
+      <p class="page-tagline">Download the latest release for your platform</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>Download Latest Release</h2>
+      <p>Choose the binary for your platform and architecture:</p>
+
+      <div class="download-buttons">
+        <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-arm64" class="download-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+          </svg>
+          <span class="platform-name">macOS</span>
+          <span class="platform-arch">Apple Silicon (ARM64)</span>
+        </a>
+
+        <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-amd64" class="download-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+          </svg>
+          <span class="platform-name">macOS</span>
+          <span class="platform-arch">Intel (AMD64)</span>
+        </a>
+
+        <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-amd64" class="download-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M20.58 19.37c-.26.26-.62.43-1.01.43h-2.31c-.39 0-.75-.17-1-.43l-3.26-3.26-3.26 3.26c-.26.26-.62.43-1 .43H6.43c-.39 0-.75-.17-1.01-.43L2.35 16.3c-.26-.26-.43-.62-.43-1.01v-2.31c0-.39.17-.75.43-1l3.07-3.07L2.35 5.84C2.09 5.58 1.92 5.22 1.92 4.83V2.52c0-.39.17-.75.43-1.01l3.07-3.07c.26-.26.62-.43 1.01-.43h2.31c.39 0 .75.17 1 .43l3.26 3.26 3.26-3.26c.26-.26.62-.43 1-.43h2.31c.39 0 .75.17 1.01.43l3.07 3.07c.26.26.43.62.43 1.01v2.31c0 .39-.17.75-.43 1l-3.07 3.07 3.07 3.07c.26.26.43.62.43 1v2.31c0 .39-.17.75-.43 1.01l-3.07 3.07zm-8.58-7.37l2.31 2.31 2.31-2.31-2.31-2.31L12 12zm-4.62 0l2.31 2.31 2.31-2.31-2.31-2.31-2.31 2.31z"/>
+          </svg>
+          <span class="platform-name">Linux</span>
+          <span class="platform-arch">AMD64</span>
+        </a>
+
+        <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-arm64" class="download-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M20.58 19.37c-.26.26-.62.43-1.01.43h-2.31c-.39 0-.75-.17-1-.43l-3.26-3.26-3.26 3.26c-.26.26-.62.43-1 .43H6.43c-.39 0-.75-.17-1.01-.43L2.35 16.3c-.26-.26-.43-.62-.43-1.01v-2.31c0-.39.17-.75.43-1l3.07-3.07L2.35 5.84C2.09 5.58 1.92 5.22 1.92 4.83V2.52c0-.39.17-.75.43-1.01l3.07-3.07c.26-.26.62-.43 1.01-.43h2.31c.39 0 .75.17 1 .43l3.26 3.26 3.26-3.26c.26-.26.62-.43 1-.43h2.31c.39 0 .75.17 1.01.43l3.07 3.07c.26.26.43.62.43 1.01v2.31c0 .39-.17.75-.43 1l-3.07 3.07 3.07 3.07c.26.26.43.62.43 1v2.31c0 .39-.17.75-.43 1.01l-3.07 3.07zm-8.58-7.37l2.31 2.31 2.31-2.31-2.31-2.31L12 12zm-4.62 0l2.31 2.31 2.31-2.31-2.31-2.31-2.31 2.31z"/>
+          </svg>
+          <span class="platform-name">Linux</span>
+          <span class="platform-arch">ARM64</span>
+        </a>
+
+        <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-windows-amd64.exe" class="download-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+          </svg>
+          <span class="platform-name">Windows</span>
+          <span class="platform-arch">AMD64</span>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Installation Instructions</h2>
+
+      <div class="platform-instructions">
+        <h3>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+          </svg>
+          macOS
+        </h3>
+        <p>After downloading the appropriate binary for your Mac (ARM64 for Apple Silicon, AMD64 for Intel):</p>
+        <ol>
+          <li>Open Terminal</li>
+          <li>Navigate to your Downloads folder:
+            <pre><code>cd ~/Downloads</code></pre>
+          </li>
+          <li>Move the binary to <code>/usr/local/bin</code> and rename it to <code>vb</code>:
+            <pre><code># For Apple Silicon (ARM64)
+sudo mv vb-macos-arm64 /usr/local/bin/vb
+
+# OR for Intel (AMD64)
+sudo mv vb-macos-amd64 /usr/local/bin/vb</code></pre>
+          </li>
+          <li>Make the binary executable:
+            <pre><code>sudo chmod +x /usr/local/bin/vb</code></pre>
+          </li>
+          <li>Verify the installation:
+            <pre><code>vb version</code></pre>
+          </li>
+        </ol>
+        <p><strong>Note:</strong> If you get a security warning when first running <code>vb</code>, go to System Preferences → Security & Privacy → General and click "Allow Anyway".</p>
+      </div>
+
+      <div class="platform-instructions">
+        <h3>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M20.58 19.37c-.26.26-.62.43-1.01.43h-2.31c-.39 0-.75-.17-1-.43l-3.26-3.26-3.26 3.26c-.26.26-.62.43-1 .43H6.43c-.39 0-.75-.17-1.01-.43L2.35 16.3c-.26-.26-.43-.62-.43-1.01v-2.31c0-.39.17-.75.43-1l3.07-3.07L2.35 5.84C2.09 5.58 1.92 5.22 1.92 4.83V2.52c0-.39.17-.75.43-1.01l3.07-3.07c.26-.26.62-.43 1.01-.43h2.31c.39 0 .75.17 1 .43l3.26 3.26 3.26-3.26c.26-.26.62-.43 1-.43h2.31c.39 0 .75.17 1.01.43l3.07 3.07c.26.26.43.62.43 1.01v2.31c0 .39-.17.75-.43 1l-3.07 3.07 3.07 3.07c.26.26.43.62.43 1v2.31c0 .39-.17.75-.43 1.01l-3.07 3.07zm-8.58-7.37l2.31 2.31 2.31-2.31-2.31-2.31L12 12zm-4.62 0l2.31 2.31 2.31-2.31-2.31-2.31-2.31 2.31z"/>
+          </svg>
+          Linux
+        </h3>
+        <p>After downloading the appropriate binary for your system (AMD64 or ARM64):</p>
+        <ol>
+          <li>Open your terminal</li>
+          <li>Navigate to your Downloads folder:
+            <pre><code>cd ~/Downloads</code></pre>
+          </li>
+          <li>Move the binary to <code>/usr/local/bin</code> and rename it to <code>vb</code>:
+            <pre><code># For AMD64
+sudo mv vb-linux-amd64 /usr/local/bin/vb
+
+# OR for ARM64
+sudo mv vb-linux-arm64 /usr/local/bin/vb</code></pre>
+          </li>
+          <li>Make the binary executable:
+            <pre><code>sudo chmod +x /usr/local/bin/vb</code></pre>
+          </li>
+          <li>Verify the installation:
+            <pre><code>vb version</code></pre>
+          </li>
+        </ol>
+      </div>
+
+      <div class="platform-instructions">
+        <h3>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+          </svg>
+          Windows
+        </h3>
+        <p>After downloading <code>vb-windows-amd64.exe</code>:</p>
+        <ol>
+          <li>Rename the downloaded file to <code>vb.exe</code></li>
+          <li>Move <code>vb.exe</code> to a directory in your PATH (e.g., <code>C:\Windows\System32</code> or create a <code>C:\bin</code> directory and add it to your PATH)</li>
+          <li>Open Command Prompt or PowerShell and verify the installation:
+            <pre><code>vb version</code></pre>
+          </li>
+        </ol>
+        <p><strong>Alternative:</strong> You can also place <code>vb.exe</code> in any directory and run it using the full path, or add that directory to your system PATH.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Next Steps</h2>
+      <p>Once installed, initialize a VirtualBoard workspace in your repository:</p>
+      <pre><code>vb init
+vb --help</code></pre>
+      <p>Visit the <a href="workflow.html">Workflow</a> page to learn how to use VirtualBoard CLI effectively.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>VirtualBoard CLI · Released under the MIT License</p>
+  </footer>
+</body>
+</html>
