@@ -248,23 +248,36 @@ func (m *Manager) MoveFeature(id, newStatus, owner string) (*Feature, string, er
 	if newDir == "" {
 		return nil, "", fmt.Errorf("unknown status directory for %s", newStatus)
 	}
-	if !strings.EqualFold(newStatus, currentStatus) || filepath.Dir(feat.Path) != newDir {
+
+	oldPath := feat.Path
+	needsMove := !strings.EqualFold(newStatus, currentStatus) || filepath.Dir(feat.Path) != newDir
+
+	if needsMove {
 		if !m.opts.DryRun {
 			if err := os.MkdirAll(newDir, 0o750); err != nil {
 				return nil, "", fmt.Errorf("failed to create status directory: %w", err)
 			}
 		}
 		newPath := filepath.Join(newDir, filepath.Base(feat.Path))
-		if !m.opts.DryRun {
-			if err := os.Rename(feat.Path, newPath); err != nil {
-				return nil, "", fmt.Errorf("failed to move feature: %w", err)
+		feat.Path = newPath
+
+		// Write the updated content to the new location first (atomically)
+		if err := m.Save(feat); err != nil {
+			return nil, "", fmt.Errorf("failed to write feature to new location: %w", err)
+		}
+
+		// Only remove the old file after the new one is successfully written
+		if oldPath != newPath && !m.opts.DryRun {
+			if err := os.Remove(oldPath); err != nil {
+				// Log but don't fail - the new file is already written
+				m.log.WithField("path", oldPath).Warn("Failed to remove old feature file")
 			}
 		}
-		feat.Path = newPath
-	}
-
-	if err := m.Save(feat); err != nil {
-		return nil, "", err
+	} else {
+		// Status/owner changed but no directory move needed
+		if err := m.Save(feat); err != nil {
+			return nil, "", err
+		}
 	}
 
 	summary := fmt.Sprintf("Moved %s to %s", feat.FrontMatter.ID, newStatus)
