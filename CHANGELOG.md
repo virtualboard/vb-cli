@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.2] - 2025-10-07
+
+### Fixed
+
+- Fixed `vb move` command to atomically update status in frontmatter when moving features between directories
+- Eliminated race condition where feature files could exist in new directory with old status value
+- Changed move operation to write-then-delete instead of rename-then-update for consistency
+
 ## [v0.2.1] - 2025-10-03
 
 ### Changed
