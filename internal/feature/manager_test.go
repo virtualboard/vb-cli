@@ -206,3 +206,104 @@ func TestListWithInvalidFiles(t *testing.T) {
 		t.Fatalf("expected error to include guidance, got: %s", errMsg)
 	}
 }
+
+func TestRenameToMatchTitle(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, false)
+	mgr := NewManager(opts)
+
+	// Create a feature with a specific title
+	feat, err := mgr.CreateFeature("Original Title", nil)
+	if err != nil {
+		t.Fatalf("create feature failed: %v", err)
+	}
+
+	originalPath := feat.Path
+	expectedFilename := fmt.Sprintf("%s-original-title.md", feat.FrontMatter.ID)
+	if filepath.Base(originalPath) != expectedFilename {
+		t.Fatalf("expected filename %s, got %s", expectedFilename, filepath.Base(originalPath))
+	}
+
+	// Update the title in frontmatter
+	feat.FrontMatter.Title = "Updated Title With Changes"
+	if err := mgr.Save(feat); err != nil {
+		t.Fatalf("save feature failed: %v", err)
+	}
+
+	// Rename to match the new title
+	renamed, err := mgr.RenameToMatchTitle(feat)
+	if err != nil {
+		t.Fatalf("rename failed: %v", err)
+	}
+	if !renamed {
+		t.Fatalf("expected rename to return true when file was renamed")
+	}
+
+	// Verify the new filename
+	expectedNewFilename := fmt.Sprintf("%s-updated-title-with-changes.md", feat.FrontMatter.ID)
+	if filepath.Base(feat.Path) != expectedNewFilename {
+		t.Fatalf("expected filename %s, got %s", expectedNewFilename, filepath.Base(feat.Path))
+	}
+
+	// Verify old file is gone
+	if _, err := os.Stat(originalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old file should not exist at %s", originalPath)
+	}
+
+	// Verify new file exists
+	if _, err := os.Stat(feat.Path); err != nil {
+		t.Fatalf("new file should exist at %s: %v", feat.Path, err)
+	}
+
+	// Verify we can load by ID using the new filename
+	loaded, err := mgr.LoadByID(feat.FrontMatter.ID)
+	if err != nil {
+		t.Fatalf("load by ID failed after rename: %v", err)
+	}
+	if loaded.FrontMatter.Title != "Updated Title With Changes" {
+		t.Fatalf("expected title to be preserved after rename")
+	}
+
+	// Test that renaming when filename already matches returns false
+	renamedAgain, err := mgr.RenameToMatchTitle(feat)
+	if err != nil {
+		t.Fatalf("second rename failed: %v", err)
+	}
+	if renamedAgain {
+		t.Fatalf("expected rename to return false when filename already matches")
+	}
+}
+
+func TestRenameToMatchTitleDryRun(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	dryOpts := fix.Options(t, false, false, true)
+	mgr := NewManager(dryOpts)
+
+	// Create a feature
+	feat := newTestFeature(fix, "FTR-0500", "backlog", "Original", nil)
+	mustWriteFeature(t, fix, feat)
+
+	originalPath := feat.Path
+
+	// Update title
+	feat.FrontMatter.Title = "Updated Name"
+
+	// Rename in dry-run mode
+	renamed, err := mgr.RenameToMatchTitle(feat)
+	if err != nil {
+		t.Fatalf("dry run rename failed: %v", err)
+	}
+	if !renamed {
+		t.Fatalf("expected rename to return true even in dry-run")
+	}
+
+	// Verify path was updated in the struct
+	if feat.Path == originalPath {
+		t.Fatalf("expected path to be updated in struct even in dry-run")
+	}
+
+	// Verify old file still exists (dry-run doesn't modify disk)
+	if _, err := os.Stat(originalPath); err != nil {
+		t.Fatalf("dry-run should not remove old file: %v", err)
+	}
+}

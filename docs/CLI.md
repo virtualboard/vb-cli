@@ -53,7 +53,7 @@ Generate indexes in Markdown, JSON, or HTML.
 Validate feature specs against schema, workflow rules, and dependency checks.
 
 **Flags:**
-- `--fix` – Apply safe fixes before validating (reapply templates)
+- `--fix` – Apply safe fixes before validating (reapply templates and sync filenames with titles)
 
 ### `vb template apply <id>`
 Reapply the canonical template to ensure required sections and defaults exist.
