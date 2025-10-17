@@ -278,12 +278,20 @@ func dedupeCycles(cycles [][]string) [][]string {
 	return unique
 }
 
-// ApplyFixes optionally applies non-destructive fixes (currently template re-application).
+// ApplyFixes applies non-destructive fixes (template re-application and filename syncing).
 func (v *Validator) ApplyFixes(features map[string]*feature.Feature, processor func(*feature.Feature) error) error {
 	for _, feat := range features {
+		// Apply template fixes
 		if err := processor(feat); err != nil {
 			return err
 		}
+
+		// Sync filename with title
+		if _, err := v.mgr.RenameToMatchTitle(feat); err != nil {
+			return err
+		}
+
+		// Save if not already saved by rename
 		if err := v.mgr.Save(feat); err != nil {
 			return err
 		}

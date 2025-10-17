@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,6 +175,65 @@ func TestValidateCommand(t *testing.T) {
 	}
 	if !bytes.Contains(bufJSON.Bytes(), []byte("\"target\"")) {
 		t.Fatalf("expected json output for validate")
+	}
+}
+
+func TestValidateFixRenamesFiles(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, false, false, false)
+	mgr := feature.NewManager(opts)
+
+	// Create a feature with one title
+	feat, err := mgr.CreateFeature("Original Title", nil)
+	if err != nil {
+		t.Fatalf("create feature failed: %v", err)
+	}
+
+	id := feat.FrontMatter.ID
+	originalPath := feat.Path
+
+	// Manually update the title in frontmatter without renaming
+	feat.FrontMatter.Title = "Updated Title Name"
+	if err := mgr.Save(feat); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	// Verify the filename doesn't match the title yet
+	expectedNewFilename := fmt.Sprintf("%s-updated-title-name.md", id)
+	if filepath.Base(feat.Path) == expectedNewFilename {
+		t.Fatalf("filename should not match updated title yet")
+	}
+
+	// Run validate --fix
+	validateCmd := newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{"--fix"})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate --fix failed: %v", err)
+	}
+
+	// Verify old file is gone
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Fatalf("old file should not exist after fix")
+	}
+
+	// Verify new file exists with correct name
+	newPath := filepath.Join(filepath.Dir(originalPath), expectedNewFilename)
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("new file should exist at %s: %v", newPath, err)
+	}
+
+	// Verify we can still load by ID
+	loaded, err := mgr.LoadByID(id)
+	if err != nil {
+		t.Fatalf("load by ID failed after fix: %v", err)
+	}
+	if loaded.FrontMatter.Title != "Updated Title Name" {
+		t.Fatalf("title should be preserved")
+	}
+	if filepath.Base(loaded.Path) != expectedNewFilename {
+		t.Fatalf("loaded feature should have new filename")
 	}
 }
 

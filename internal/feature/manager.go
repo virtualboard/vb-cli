@@ -293,6 +293,54 @@ func (m *Manager) MoveFeature(id, newStatus, owner string) (*Feature, string, er
 	return feat, summary, nil
 }
 
+// RenameToMatchTitle renames a feature file to match its current title.
+// Returns true if the file was renamed, false if it already matched.
+func (m *Manager) RenameToMatchTitle(feat *Feature) (bool, error) {
+	expectedName := fmt.Sprintf("%s-%s.md", feat.FrontMatter.ID, util.Slugify(feat.FrontMatter.Title))
+	currentName := filepath.Base(feat.Path)
+
+	if strings.EqualFold(currentName, expectedName) {
+		return false, nil
+	}
+
+	oldPath := feat.Path
+	newPath := filepath.Join(filepath.Dir(feat.Path), expectedName)
+
+	if m.opts.DryRun {
+		m.log.WithFields(logrus.Fields{
+			"action": "rename",
+			"old":    currentName,
+			"new":    expectedName,
+			"dryRun": true,
+		}).Info("Skipping rename in dry-run mode")
+		feat.Path = newPath
+		return true, nil
+	}
+
+	// Update the feature's path before saving
+	feat.Path = newPath
+
+	// Write the feature to the new path atomically
+	if err := m.Save(feat); err != nil {
+		return false, fmt.Errorf("failed to write feature to new path: %w", err)
+	}
+
+	// Remove the old file only after the new one is successfully written
+	if err := os.Remove(oldPath); err != nil {
+		// Log but don't fail - the new file is already written
+		m.log.WithField("path", oldPath).Warn("Failed to remove old feature file")
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"action": "rename",
+		"id":     feat.FrontMatter.ID,
+		"old":    currentName,
+		"new":    expectedName,
+	}).Info("Feature file renamed")
+
+	return true, nil
+}
+
 func (m *Manager) verifyDependenciesForMove(feat *Feature, target string) error {
 	if strings.ToLower(target) != "in-progress" {
 		return nil
