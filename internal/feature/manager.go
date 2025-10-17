@@ -347,6 +347,7 @@ func (m *Manager) List() ([]*Feature, error) {
 		return nil, statErr
 	}
 	var features []*Feature
+	var invalidFiles []InvalidFile
 	err := filepath.WalkDir(featuresDir, func(path string, d fs.DirEntry, err error) error {
 
 		if err != nil {
@@ -369,7 +370,12 @@ func (m *Manager) List() ([]*Feature, error) {
 		}
 		feat, parseErr := Parse(path, data)
 		if parseErr != nil {
-			return parseErr
+			// Collect parse errors instead of failing immediately
+			invalidFiles = append(invalidFiles, InvalidFile{
+				Path:   path,
+				Reason: parseErr.Error(),
+			})
+			return nil
 		}
 		features = append(features, feat)
 		return nil
@@ -377,6 +383,12 @@ func (m *Manager) List() ([]*Feature, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+
+	// If we found invalid files, return them as an error
+	if len(invalidFiles) > 0 {
+		return nil, &InvalidFileError{Files: invalidFiles}
+	}
+
 	sort.Slice(features, func(i, j int) bool {
 		return features[i].FrontMatter.ID < features[j].FrontMatter.ID
 	})

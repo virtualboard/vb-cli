@@ -99,3 +99,43 @@ Check for a newer version of vb on GitHub releases and upgrade the binary if ava
 ## Exit Codes
 
 `vb` surfaces rich exit codes to indicate validation errors, not found resources, lock conflicts, and more. Refer to `cmd/exit.go` for the complete list.
+
+## Common Issues and Troubleshooting
+
+### Invalid Feature Files
+
+When running `vb validate` or `vb index`, you may encounter an error about invalid feature files:
+
+```
+found 2 invalid feature files:
+  - .virtualboard/features/backlog/notes.md: invalid feature spec: missing frontmatter
+  - .virtualboard/features/backlog/draft.md: failed to parse frontmatter: yaml: line 2: mapping values are not allowed
+
+These files do not follow the feature spec format. Please review and move them to another directory if they are not feature specs.
+```
+
+**Cause:** The `.virtualboard/features/` directory contains markdown files that don't follow the required feature spec format (YAML frontmatter delimited by `---`).
+
+**Solution:**
+1. Review the listed files
+2. Move non-feature files (notes, documentation, drafts) to a different directory
+3. Fix any malformed frontmatter in actual feature specs
+4. Ensure all feature files start with properly formatted YAML frontmatter:
+
+```markdown
+---
+id: FTR-0001
+title: Feature Title
+status: backlog
+owner: ""
+priority: medium
+complexity: medium
+created: 2024-01-01
+updated: 2024-01-01
+labels: []
+dependencies: []
+---
+
+## Overview
+...
+```

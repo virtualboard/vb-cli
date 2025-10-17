@@ -53,6 +53,9 @@ go test ./cmd -run TestInitCommand
 
 # Run tests with verbose output
 go test -v ./...
+
+# Run tests without cache (useful after file changes)
+go test ./... -count=1
 ```
 
 ### Version Management
@@ -79,6 +82,7 @@ make version-bump VERSION=v1.2.3
 - `manager.go` - CRUD operations for feature files
 - `status.go` - Workflow status directory mappings (backlog → in-progress → done)
 - `sections.go` - Body section parsing/manipulation (H2 headings)
+- `errors.go` - Custom error types (`InvalidFileError` for batch parse failures)
 
 **`internal/validator/`** - Validation engine
 - JSON schema validation via `gojsonschema`
@@ -153,6 +157,16 @@ Feature description here...
 - Test files co-located with implementation (`*_test.go`)
 - `internal/testutil/` provides fixture utilities for isolated test environments
 - Most command tests use temporary directories via `testutil.Fixture`
+
+**Test Isolation Pattern**:
+
+```go
+fix := testutil.NewFixture(t)           // Creates temp workspace
+opts := fix.Options(t, false, false, false)  // json, verbose, dryRun
+mgr := feature.NewManager(opts)
+// Test operations in isolated environment
+// Fixture automatically cleans up after test
+```
 
 ### CLI Response Pattern
 
@@ -253,8 +267,10 @@ summary, _ := validator.ValidateAll()
 ### Atomic File Writes
 
 ```go
-// Always use util.WriteFile for atomic, secure writes
-util.WriteFile(path, data, 0o600)
+// Always use util.WriteFileAtomic for atomic, secure writes
+util.WriteFileAtomic(path, data, 0o600)
+// Writes to temp file first, then atomic rename
+// Prevents partial writes or corruption
 ```
 
 ### Command Response
@@ -270,6 +286,24 @@ return respond(cmd, opts, success, message, dataMap)
 // Get logger from options
 log := opts.Logger().WithField("component", "mycomponent")
 log.Info("message")
+```
+
+### Error Handling
+
+**Custom Error Types**:
+- Use `errors.New()` for sentinel errors (`ErrNotFound`, `ErrInvalidTransition`)
+- Create custom error types for complex failures that need context
+- Example: `InvalidFileError` collects multiple parse failures with paths and reasons
+
+**Error Pattern**:
+
+```go
+// For batch operations that shouldn't fail-fast
+var invalidFiles []InvalidFile
+// ... collect errors ...
+if len(invalidFiles) > 0 {
+    return &InvalidFileError{Files: invalidFiles}
+}
 ```
 
 ## File Permissions
