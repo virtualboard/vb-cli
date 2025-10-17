@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.3] - 2025-10-16
+
+### Fixed
+
+- Improved error messages when `vb validate` or `vb index` encounter invalid feature files
+- Now collects and displays all invalid markdown files in a single detailed error message instead of failing on the first one
+- Error messages now include file paths and specific reasons for parse failures
+- Added guidance to help users identify and relocate non-compliant markdown files
+
 ## [v0.2.2] - 2025-10-07
 
 ### Fixed

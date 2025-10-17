@@ -163,3 +163,46 @@ func mustWriteFeature(t *testing.T, fix *testutil.Fixture, feat *Feature) {
 	}
 	fix.WriteFile(t, rel, data)
 }
+
+func TestListWithInvalidFiles(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, false)
+	mgr := NewManager(opts)
+
+	// Create a valid feature
+	feat := newTestFeature(fix, "FTR-0001", "backlog", "Valid", []string{})
+	mustWriteFeature(t, fix, feat)
+
+	// Create an invalid markdown file (missing frontmatter)
+	fix.WriteFile(t, "features/backlog/invalid1.md", []byte("# Just a heading\nNo frontmatter here"))
+
+	// Create another invalid file (malformed frontmatter)
+	fix.WriteFile(t, "features/backlog/invalid2.md", []byte("---\ninvalid yaml: [\n---\n"))
+
+	// List should fail with InvalidFileError
+	_, err := mgr.List()
+	if err == nil {
+		t.Fatalf("expected error when listing with invalid files")
+	}
+
+	var invalidErr *InvalidFileError
+	if !errors.As(err, &invalidErr) {
+		t.Fatalf("expected InvalidFileError, got: %T", err)
+	}
+
+	if len(invalidErr.Files) != 2 {
+		t.Fatalf("expected 2 invalid files, got: %d", len(invalidErr.Files))
+	}
+
+	// Check that the error message contains file paths
+	errMsg := err.Error()
+	if !containsString(errMsg, "invalid1.md") {
+		t.Fatalf("expected error to mention invalid1.md, got: %s", errMsg)
+	}
+	if !containsString(errMsg, "invalid2.md") {
+		t.Fatalf("expected error to mention invalid2.md, got: %s", errMsg)
+	}
+	if !containsString(errMsg, "review and move") {
+		t.Fatalf("expected error to include guidance, got: %s", errMsg)
+	}
+}
