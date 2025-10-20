@@ -43,11 +43,38 @@ Delete a feature spec. Confirmation is required unless `--force` is provided.
 - `--force` – Delete without confirmation
 
 ### `vb index`
-Generate indexes in Markdown, JSON, or HTML.
+Generate indexes in Markdown, JSON, or HTML. For markdown format, the command automatically detects changes by comparing the new index with the existing INDEX.md file and provides informative feedback.
 
 **Flags:**
 - `--format <format>` – Index format: md, json, html (default: md)
 - `--output <path>` – Output destination (default: features/INDEX.md for md format)
+- `-v, --verbose` – Show detailed list of features that changed (can be used twice: `-vv` for very verbose output)
+- `-q, --quiet` – Only output if there are changes detected
+
+**Change Detection (Markdown format only):**
+- Default: Shows summary of changes ("No changes", "3 added, 2 transitioned, 1 removed")
+- `-v`: Shows detailed list with feature IDs grouped by change type (Added, Status Changes, Metadata Changes, Removed)
+- `-vv`: Shows very verbose output with symbols and full change details
+- `-q`: Suppresses all output when no changes are detected (useful for CI/automation)
+
+**Examples:**
+
+```bash
+# Generate index with default output
+vb index
+
+# Show detailed changes
+vb index -v
+
+# Very verbose with full details
+vb index -vv
+
+# Quiet mode for automation (only output if changes)
+vb index -q
+
+# Generate HTML index
+vb index --format html --output docs/features.html
+```
 
 ### `vb validate [id|all]`
 Validate feature specs against schema, workflow rules, and dependency checks.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/virtualboard/vb-cli/internal/config"
 	"github.com/virtualboard/vb-cli/internal/feature"
+	"github.com/virtualboard/vb-cli/internal/indexer"
 	"github.com/virtualboard/vb-cli/internal/testutil"
 	"github.com/virtualboard/vb-cli/internal/util"
 	"github.com/virtualboard/vb-cli/internal/validator"
@@ -347,6 +348,266 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if !bytes.Contains(jsonBuf.Bytes(), []byte("\"version\"")) {
 		t.Fatalf("expected json version output: %s", jsonBuf.String())
+	}
+}
+
+func TestIndexCommandVerbosity(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, false, false, false)
+	mgr := feature.NewManager(opts)
+
+	// Create initial feature
+	feat1, err := mgr.CreateFeature("Feature One", []string{"tag1"})
+	if err != nil {
+		t.Fatalf("create feature 1 failed: %v", err)
+	}
+
+	// Generate initial index
+	indexCmd := newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("initial index command failed: %v", err)
+	}
+
+	// Run again with default verbosity (should show no changes)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("second index command failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "No changes") {
+		t.Fatalf("expected 'No changes' in output, got: %s", output)
+	}
+
+	// Add another feature
+	_, err = mgr.CreateFeature("Feature Two", []string{"tag2"})
+	if err != nil {
+		t.Fatalf("create feature 2 failed: %v", err)
+	}
+
+	// Run with default verbosity (should show summary)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index after add failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "1 added") {
+		t.Fatalf("expected '1 added' in output, got: %s", output)
+	}
+
+	// Run with -v (should show feature IDs)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md", "-v"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index with -v failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "No changes detected") {
+		t.Fatalf("expected 'No changes detected' with -v, got: %s", output)
+	}
+
+	// Move a feature to test status change
+	if _, _, err := mgr.MoveFeature(feat1.FrontMatter.ID, "in-progress", ""); err != nil {
+		t.Fatalf("move failed: %v", err)
+	}
+
+	// Run with -v (should show status changes)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md", "-v"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index after move failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "Status Changes:") {
+		t.Fatalf("expected 'Status Changes:' with -v, got: %s", output)
+	}
+	if !strings.Contains(output, feat1.FrontMatter.ID) {
+		t.Fatalf("expected feature ID in verbose output, got: %s", output)
+	}
+
+	// Run with -vv (should show very detailed changes)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md", "-vv"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index with -vv failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "No changes detected") {
+		t.Fatalf("expected 'No changes detected' with -vv after no changes, got: %s", output)
+	}
+}
+
+func TestIndexCommandQuiet(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, false, false, false)
+	mgr := feature.NewManager(opts)
+
+	// Create initial feature
+	if _, err := mgr.CreateFeature("Feature One", []string{"tag1"}); err != nil {
+		t.Fatalf("create feature failed: %v", err)
+	}
+
+	// Generate initial index
+	indexCmd := newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("initial index command failed: %v", err)
+	}
+
+	// Run again with --quiet (should produce no output since no changes)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md", "--quiet"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index with --quiet failed: %v", err)
+	}
+	output := buf.String()
+	if strings.TrimSpace(output) != "" {
+		t.Fatalf("expected no output with --quiet when no changes, got: %s", output)
+	}
+
+	// Add another feature
+	if _, err := mgr.CreateFeature("Feature Two", []string{"tag2"}); err != nil {
+		t.Fatalf("create second feature failed: %v", err)
+	}
+
+	// Run with --quiet (should show output since there are changes)
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md", "--quiet"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index with --quiet after changes failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "1 added") {
+		t.Fatalf("expected output with --quiet when changes exist, got: %s", output)
+	}
+
+	// Test -q short flag
+	buf.Reset()
+	config.SetCurrent(opts)
+	indexCmd = newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "md", "--output", "features/INDEX.md", "-q"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index with -q failed: %v", err)
+	}
+	output = buf.String()
+	if strings.TrimSpace(output) != "" {
+		t.Fatalf("expected no output with -q when no changes, got: %s", output)
+	}
+}
+
+func TestIndexCommandNonMarkdownFormat(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, false, false, false)
+	mgr := feature.NewManager(opts)
+
+	// Create a feature
+	if _, err := mgr.CreateFeature("Feature One", []string{"tag1"}); err != nil {
+		t.Fatalf("create feature failed: %v", err)
+	}
+
+	// Test HTML format (should not show diff info)
+	indexCmd := newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	indexCmd.SetArgs([]string{"--format", "html", "--output", "features/INDEX.html"})
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index html failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "Index written to") {
+		t.Fatalf("expected simple message for HTML format, got: %s", output)
+	}
+}
+
+func TestFormatIndexOutput(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	fix.Options(t, false, false, false)
+
+	// Create test data
+	data := &indexer.Data{
+		Features: []indexer.Entry{
+			{ID: "FEAT-001", Status: "backlog"},
+			{ID: "FEAT-002", Status: "in-progress"},
+		},
+		Summary: map[string]int{
+			"backlog":     1,
+			"in-progress": 1,
+		},
+	}
+
+	// Test with nil diff
+	output := formatIndexOutput(nil, data, "features/INDEX.md", 0)
+	if !strings.Contains(output, "Index written to") {
+		t.Fatalf("expected simple output with nil diff")
+	}
+
+	// Test with empty diff (no changes)
+	diff := &indexer.Diff{}
+	output = formatIndexOutput(diff, data, "features/INDEX.md", 0)
+	if !strings.Contains(output, "No changes") {
+		t.Fatalf("expected 'No changes' in output")
+	}
+
+	// Test with changes at different verbosity levels
+	diff = &indexer.Diff{
+		Added: 1,
+		Changes: []indexer.Change{
+			{Type: indexer.ChangeTypeAdded, FeatureID: "FEAT-003", NewStatus: "backlog"},
+		},
+	}
+
+	// Verbosity 0
+	output = formatIndexOutput(diff, data, "features/INDEX.md", 0)
+	if !strings.Contains(output, "1 added") {
+		t.Fatalf("expected summary at verbosity 0")
+	}
+
+	// Verbosity 1
+	output = formatIndexOutput(diff, data, "features/INDEX.md", 1)
+	if !strings.Contains(output, "Added:") || !strings.Contains(output, "FEAT-003") {
+		t.Fatalf("expected detailed list at verbosity 1")
+	}
+
+	// Verbosity 2
+	output = formatIndexOutput(diff, data, "features/INDEX.md", 2)
+	if !strings.Contains(output, "✓ FEAT-003 added") {
+		t.Fatalf("expected very verbose output at verbosity 2")
 	}
 }
 
