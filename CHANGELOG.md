@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.0] - 2025-10-16
+
+### Added
+
+- Enhanced `vb index` command with change detection by parsing existing INDEX.md
+- Added `--verbose`/`-v` flag to show detailed list of features that changed
+- Added `-vv` flag for very verbose output with full change details
+- Added `--quiet`/`-q` flag to suppress output when no changes detected
+- Implemented smart diff logic that detects added, removed, and status-transitioned features
+- Added metadata change detection for title, owner, priority, complexity, labels, and timestamps
+
+### Changed
+
+- `vb index` now shows "No changes" or change summary by default instead of always saying "Index written"
+- Output now includes count of features by status when changes are detected
+- Change detection only works with markdown format (not JSON or HTML)
+
 ## [v0.2.4] - 2025-10-16
 
 ### Added
