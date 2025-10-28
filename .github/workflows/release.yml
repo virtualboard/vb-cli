@@ -114,7 +114,7 @@ jobs:
           go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/${{ env.BINARY_NAME }}-${{ matrix.platform }} .
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.platform }}
           path: dist/${{ env.BINARY_NAME }}-${{ matrix.platform }}
@@ -132,7 +132,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
 
       - name: Prepare release assets
         run: |

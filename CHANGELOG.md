@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [v0.4.0] - 2025-10-27
+
+### Added
+
+- `vb init --update` flag for updating existing VirtualBoard workspaces to the latest template version
+- Interactive file-by-file diff and apply workflow when updating templates
+- `vb init --files` flag to selectively update specific template files
+- Template version tracking in `.template-version` file
+- `internal/templatediff` package for comparing and diffing template directories
+- `internal/util/interactive` package for user prompts and confirmations
+- Feature file detection in diff logic (preserves user's feature specs during updates)
+- Support for `--dry-run` with `vb init --update` to preview changes without applying
+
+### Changed
+
+- `vb init` error message now suggests `--update` flag for existing workspaces
+- Template updates exclude user feature files (only update template infrastructure)
+
 ## [v0.3.0] - 2025-10-16
 
 ### Added

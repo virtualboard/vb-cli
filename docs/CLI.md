@@ -19,6 +19,35 @@ Initialise the current directory with the VirtualBoard template. Downloads the l
 
 **Flags:**
 - `--force` – Re-create an existing workspace (previous contents are removed)
+- `--update` – Update an existing workspace to the latest template version (interactive file-by-file diff and apply)
+- `--files <file1,file2,...>` – When using `--update`, only update specific files (comma-separated list of relative paths)
+
+**Update Workflow:**
+When using `--update`, vb will:
+1. Fetch the latest template from GitHub
+2. Compare it with your local `.virtualboard/` directory
+3. Show a summary of changes (added, modified, removed files)
+4. For each change, display a unified diff and prompt for confirmation
+5. Apply selected changes and track the template version in `.template-version`
+
+**Examples:**
+
+```bash
+# Initialize a new workspace
+vb init
+
+# Update all template files interactively
+vb init --update
+
+# Update only specific files
+vb init --update --files README.md,schema.json
+
+# Preview changes without applying (dry-run)
+vb init --update --dry-run
+
+# Update automatically in JSON mode (no prompts)
+vb init --update --json
+```
 
 ### `vb new <title> [labels...]`
 Create a new feature spec in the backlog using the canonical template.

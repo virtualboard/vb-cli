@@ -83,7 +83,7 @@ jobs:
           fi
 
       - name: Upload test artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: vb-${{ matrix.platform }}-test
           path: dist/vb-${{ matrix.platform }}*
@@ -97,7 +97,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
 
       - name: Create test packages
         run: |
@@ -128,7 +128,7 @@ jobs:
           ls -la test-packages/
 
       - name: Upload test packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-packages
           path: test-packages/

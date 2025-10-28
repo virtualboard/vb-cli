@@ -11,13 +11,20 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/templatediff"
+	"github.com/virtualboard/vb-cli/internal/util"
 )
 
 const initDirName = ".virtualboard"
 const templateZipURL = "https://github.com/virtualboard/template-base/archive/refs/heads/main.zip"
+const templateVersionURL = "https://raw.githubusercontent.com/virtualboard/template-base/main/version.txt"
 const maxTemplateBytes int64 = 50 * 1024 * 1024
+const templateVersionFile = ".template-version"
 
 type fetchTemplateFunc func(workdir, dest string) error
+type fetchTemplateToDirFunc func() (string, error)
+type fetchTemplateVersionFunc func() (string, error)
 
 var fetchTemplate fetchTemplateFunc = func(workdir, dest string) error {
 	resp, err := http.Get(templateZipURL)
@@ -114,12 +121,422 @@ var fetchTemplate fetchTemplateFunc = func(workdir, dest string) error {
 	return nil
 }
 
+var fetchTemplateToTempDir fetchTemplateToDirFunc = func() (string, error) {
+	tempDir, err := os.MkdirTemp("", "vb-template-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	if err := fetchTemplate("", tempDir); err != nil {
+		// Clean up on failure
+		_ = os.RemoveAll(tempDir)
+		return "", err
+	}
+
+	return tempDir, nil
+}
+
+var fetchTemplateVersionVar fetchTemplateVersionFunc = func() (string, error) {
+	resp, err := http.Get(templateVersionURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch template version: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status %d fetching template version", resp.StatusCode)
+	}
+
+	versionBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read template version: %w", err)
+	}
+
+	return strings.TrimSpace(string(versionBytes)), nil
+}
+
+func saveTemplateVersion(targetPath, version string) error {
+	versionPath := filepath.Join(targetPath, templateVersionFile)
+	return util.WriteFileAtomic(versionPath, []byte(version+"\n"), 0o600)
+}
+
+func readTemplateVersion(targetPath string) (string, error) {
+	versionPath := filepath.Join(targetPath, templateVersionFile)
+	data, err := os.ReadFile(versionPath) // #nosec G304 -- path is from validated directory
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func handleUpdate(cmd *cobra.Command, opts *config.Options, targetPath string, fileFilter []string) error {
+	// Check if workspace exists
+	exists, err := pathExists(targetPath)
+	if err != nil {
+		return WrapCLIError(ExitCodeFilesystem, err)
+	}
+	if !exists {
+		return WrapCLIError(ExitCodeValidation, fmt.Errorf(".virtualboard workspace does not exist. Run 'vb init' first"))
+	}
+
+	// Get current version
+	currentVersion, err := readTemplateVersion(targetPath)
+	if err != nil {
+		opts.Logger().WithError(err).Warn("Failed to read current template version")
+	}
+
+	// Fetch latest template to temp directory
+	if !opts.JSONOutput {
+		fmt.Fprintln(os.Stderr, "Fetching latest template...")
+	}
+
+	tempDir, err := fetchTemplateToTempDir()
+	if err != nil {
+		return WrapCLIError(ExitCodeFilesystem, fmt.Errorf("failed to fetch template: %w", err))
+	}
+	defer os.RemoveAll(tempDir) // Clean up temp directory
+
+	// Get new version
+	newVersion, err := fetchTemplateVersionVar()
+	if err != nil {
+		opts.Logger().WithError(err).Warn("Failed to fetch new template version")
+	}
+
+	// Compare directories
+	if !opts.JSONOutput {
+		fmt.Fprintln(os.Stderr, "Comparing with local .virtualboard/...")
+	}
+
+	diff, err := templatediff.CompareDirectories(targetPath, tempDir)
+	if err != nil {
+		return WrapCLIError(ExitCodeFilesystem, fmt.Errorf("failed to compare templates: %w", err))
+	}
+
+	// Filter files if specified
+	if len(fileFilter) > 0 {
+		diff = filterDiff(diff, fileFilter)
+	}
+
+	// Check if there are changes
+	if !diff.HasChanges() {
+		msg := "Template is already up to date"
+		return respond(cmd, opts, true, msg, map[string]interface{}{
+			"current_version": currentVersion,
+			"latest_version":  newVersion,
+			"changes":         0,
+		})
+	}
+
+	// Display summary
+	if !opts.JSONOutput {
+		fmt.Fprintln(os.Stderr, "")
+		displayUpdateSummary(diff, currentVersion, newVersion)
+	}
+
+	// In dry-run mode, just show what would change
+	if opts.DryRun {
+		return respond(cmd, opts, true, "Dry run complete - no changes applied", map[string]interface{}{
+			"current_version": currentVersion,
+			"latest_version":  newVersion,
+			"added":           len(diff.Added),
+			"modified":        len(diff.Modified),
+			"removed":         len(diff.Removed),
+			"files":           collectFilePaths(diff),
+		})
+	}
+
+	// Interactive update process
+	applied, err := applyUpdates(opts, targetPath, diff)
+	if err != nil {
+		return WrapCLIError(ExitCodeFilesystem, fmt.Errorf("failed to apply updates: %w", err))
+	}
+
+	// Save new template version if any changes were applied
+	if applied > 0 && newVersion != "" {
+		if err := saveTemplateVersion(targetPath, newVersion); err != nil {
+			opts.Logger().WithError(err).Warn("Failed to save new template version")
+		}
+	}
+
+	msg := fmt.Sprintf("Template update complete. Applied %d change(s)", applied)
+	return respond(cmd, opts, true, msg, map[string]interface{}{
+		"current_version": currentVersion,
+		"new_version":     newVersion,
+		"applied":         applied,
+		"total_changes":   diff.TotalChanges(),
+	})
+}
+
+func filterDiff(diff *templatediff.TemplateDiff, fileFilter []string) *templatediff.TemplateDiff {
+	filterMap := make(map[string]bool)
+	for _, f := range fileFilter {
+		filterMap[f] = true
+	}
+
+	filtered := &templatediff.TemplateDiff{
+		Added:     []templatediff.FileDiff{},
+		Modified:  []templatediff.FileDiff{},
+		Removed:   []templatediff.FileDiff{},
+		Unchanged: []templatediff.FileDiff{},
+	}
+
+	for _, fd := range diff.Added {
+		if filterMap[fd.Path] {
+			filtered.Added = append(filtered.Added, fd)
+		}
+	}
+	for _, fd := range diff.Modified {
+		if filterMap[fd.Path] {
+			filtered.Modified = append(filtered.Modified, fd)
+		}
+	}
+	for _, fd := range diff.Removed {
+		if filterMap[fd.Path] {
+			filtered.Removed = append(filtered.Removed, fd)
+		}
+	}
+
+	return filtered
+}
+
+func displayUpdateSummary(diff *templatediff.TemplateDiff, currentVersion, newVersion string) {
+	if currentVersion != "" && newVersion != "" {
+		fmt.Fprintf(os.Stderr, "Upgrading template: %s → %s\n\n", currentVersion, newVersion)
+	}
+
+	fmt.Fprintln(os.Stderr, "Changes detected:")
+	if len(diff.Added) > 0 {
+		fmt.Fprintf(os.Stderr, "  %d file(s) added\n", len(diff.Added))
+	}
+	if len(diff.Modified) > 0 {
+		fmt.Fprintf(os.Stderr, "  %d file(s) modified\n", len(diff.Modified))
+	}
+	if len(diff.Removed) > 0 {
+		fmt.Fprintf(os.Stderr, "  %d file(s) removed\n", len(diff.Removed))
+	}
+	fmt.Fprintln(os.Stderr, "")
+
+	// List new files
+	if len(diff.Added) > 0 {
+		fmt.Fprintln(os.Stderr, "New files:")
+		for i, fd := range diff.Added {
+			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, fd.Path)
+		}
+		fmt.Fprintln(os.Stderr, "")
+	}
+
+	// List modified files
+	if len(diff.Modified) > 0 {
+		fmt.Fprintln(os.Stderr, "Modified files:")
+		for i, fd := range diff.Modified {
+			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, fd.Path)
+		}
+		fmt.Fprintln(os.Stderr, "")
+	}
+
+	// List removed files
+	if len(diff.Removed) > 0 {
+		fmt.Fprintln(os.Stderr, "Removed files:")
+		for i, fd := range diff.Removed {
+			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, fd.Path)
+		}
+		fmt.Fprintln(os.Stderr, "")
+	}
+}
+
+func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.TemplateDiff) (int, error) {
+	applied := 0
+	applyAll := false
+
+	// Process new files first
+	for _, fd := range diff.Added {
+		if opts.JSONOutput {
+			// In JSON mode, apply all changes automatically
+			if err := applyFileDiff(targetPath, &fd); err != nil {
+				return applied, err
+			}
+			applied++
+			continue
+		}
+
+		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		fmt.Fprintf(os.Stderr, "New file: %s\n", fd.Path)
+		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		fmt.Fprintln(os.Stderr, string(fd.RemoteContent))
+		fmt.Fprintln(os.Stderr, "")
+
+		if !applyAll {
+			choice, err := util.PromptUser("Add this file?")
+			if err != nil {
+				return applied, fmt.Errorf("failed to read user input: %w", err)
+			}
+
+			switch choice {
+			case util.PromptChoiceYes:
+				// Apply this one
+			case util.PromptChoiceNo:
+				continue
+			case util.PromptChoiceAll:
+				applyAll = true
+			case util.PromptChoiceQuit:
+				return applied, nil
+			default:
+				fmt.Fprintln(os.Stderr, "Invalid choice, skipping...")
+				continue
+			}
+		}
+
+		if err := applyFileDiff(targetPath, &fd); err != nil {
+			return applied, err
+		}
+		applied++
+	}
+
+	// Process modified files
+	for _, fd := range diff.Modified {
+		if opts.JSONOutput {
+			// In JSON mode, apply all changes automatically
+			if err := applyFileDiff(targetPath, &fd); err != nil {
+				return applied, err
+			}
+			applied++
+			continue
+		}
+
+		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		fmt.Fprintf(os.Stderr, "Modified file: %s\n", fd.Path)
+		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		fmt.Fprintln(os.Stderr, fd.UnifiedDiff)
+		fmt.Fprintln(os.Stderr, "")
+
+		if !applyAll {
+			choice, err := util.PromptUser("Apply this change?")
+			if err != nil {
+				return applied, fmt.Errorf("failed to read user input: %w", err)
+			}
+
+			switch choice {
+			case util.PromptChoiceYes:
+				// Apply this one
+			case util.PromptChoiceNo:
+				continue
+			case util.PromptChoiceAll:
+				applyAll = true
+			case util.PromptChoiceQuit:
+				return applied, nil
+			default:
+				fmt.Fprintln(os.Stderr, "Invalid choice, skipping...")
+				continue
+			}
+		}
+
+		if err := applyFileDiff(targetPath, &fd); err != nil {
+			return applied, err
+		}
+		applied++
+	}
+
+	// Process removed files
+	for _, fd := range diff.Removed {
+		if opts.JSONOutput {
+			// In JSON mode, apply all changes automatically
+			if err := applyFileDiff(targetPath, &fd); err != nil {
+				return applied, err
+			}
+			applied++
+			continue
+		}
+
+		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		fmt.Fprintf(os.Stderr, "Removed file: %s\n", fd.Path)
+		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		fmt.Fprintln(os.Stderr, "")
+
+		if !applyAll {
+			choice, err := util.PromptUser("Remove this file?")
+			if err != nil {
+				return applied, fmt.Errorf("failed to read user input: %w", err)
+			}
+
+			switch choice {
+			case util.PromptChoiceYes:
+				// Apply this one
+			case util.PromptChoiceNo:
+				continue
+			case util.PromptChoiceAll:
+				applyAll = true
+			case util.PromptChoiceQuit:
+				return applied, nil
+			default:
+				fmt.Fprintln(os.Stderr, "Invalid choice, skipping...")
+				continue
+			}
+		}
+
+		if err := applyFileDiff(targetPath, &fd); err != nil {
+			return applied, err
+		}
+		applied++
+	}
+
+	return applied, nil
+}
+
+func applyFileDiff(targetPath string, fd *templatediff.FileDiff) error {
+	fullPath := filepath.Join(targetPath, fd.Path)
+
+	switch fd.Status {
+	case templatediff.FileStatusAdded:
+		// Create parent directory if needed
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", fd.Path, err)
+		}
+		// Write new file
+		return util.WriteFileAtomic(fullPath, fd.RemoteContent, 0o600)
+
+	case templatediff.FileStatusModified:
+		// Overwrite existing file
+		return util.WriteFileAtomic(fullPath, fd.RemoteContent, 0o600)
+
+	case templatediff.FileStatusRemoved:
+		// Remove file
+		return os.Remove(fullPath)
+
+	default:
+		return fmt.Errorf("unknown file status: %s", fd.Status)
+	}
+}
+
+func collectFilePaths(diff *templatediff.TemplateDiff) []string {
+	var paths []string
+	for _, fd := range diff.Added {
+		paths = append(paths, fd.Path)
+	}
+	for _, fd := range diff.Modified {
+		paths = append(paths, fd.Path)
+	}
+	for _, fd := range diff.Removed {
+		paths = append(paths, fd.Path)
+	}
+	return paths
+}
+
 func newInitCommand() *cobra.Command {
 	var force bool
+	var update bool
+	var files []string
 
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialise a VirtualBoard workspace in the current directory",
+		Long: `Initialise a VirtualBoard workspace in the current directory.
+
+By default, creates a new .virtualboard/ directory with the latest template.
+Use --update to update an existing workspace to the latest template version.
+Use --files to update only specific files when using --update.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := options()
 			if err != nil {
@@ -133,14 +550,21 @@ func newInitCommand() *cobra.Command {
 
 			targetPath := filepath.Join(projectRoot, initDirName)
 
+			// Handle --update flag
+			if update {
+				return handleUpdate(cmd, opts, targetPath, files)
+			}
+
+			// Original init logic
 			if exists, err := pathExists(targetPath); err != nil {
 				return WrapCLIError(ExitCodeFilesystem, err)
 			} else if exists && !force {
-				detail := fmt.Sprintf("VirtualBoard workspace already initialised at %s. Use --force to re-create it. We recommend managing this directory with git.", initDirName)
+				detail := fmt.Sprintf("VirtualBoard workspace already initialised at %s. Use --force to re-create it or --update to update it. We recommend managing this directory with git.", initDirName)
 				if opts.JSONOutput {
 					if respErr := respond(cmd, opts, false, detail, map[string]interface{}{
 						"path":          initDirName,
 						"force_hint":    true,
+						"update_hint":   true,
 						"recommend_git": true,
 					}); respErr != nil {
 						return respErr
@@ -160,15 +584,26 @@ func newInitCommand() *cobra.Command {
 				return WrapCLIError(ExitCodeFilesystem, fmt.Errorf("failed to prepare template: %w", err))
 			}
 
+			// Save template version
+			version, err := fetchTemplateVersionVar()
+			if err != nil {
+				opts.Logger().WithError(err).Warn("Failed to fetch template version")
+			} else if err := saveTemplateVersion(targetPath, version); err != nil {
+				opts.Logger().WithError(err).Warn("Failed to save template version")
+			}
+
 			msg := fmt.Sprintf("VirtualBoard project initialised in %s. Review the files under %s.", initDirName, initDirName)
 			return respond(cmd, opts, true, msg, map[string]interface{}{
-				"path":   initDirName,
-				"source": templateZipURL,
+				"path":    initDirName,
+				"source":  templateZipURL,
+				"version": version,
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Recreate the VirtualBoard workspace even if it already exists")
+	cmd.Flags().BoolVar(&update, "update", false, "Update existing workspace to latest template version")
+	cmd.Flags().StringSliceVar(&files, "files", nil, "Specific files to update (only valid with --update)")
 	cmd.SilenceUsage = true
 	return cmd
 }

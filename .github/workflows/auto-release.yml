@@ -239,7 +239,7 @@ jobs:
           go build -ldflags="-s -w -X main.version=${{ needs.determine-release.outputs.version }}" -o dist/${{ env.BINARY_NAME }}-${{ matrix.platform }} .
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.platform }}
           path: dist/${{ env.BINARY_NAME }}-${{ matrix.platform }}
@@ -259,7 +259,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
 
       - name: Prepare release assets
         run: |
@@ -450,7 +450,7 @@ jobs:
 
       - name: Upload Release Assets as Artifacts
         if: steps.create-release.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: release-assets-${{ needs.determine-release.outputs.tag-name }}
           path: release-assets/
