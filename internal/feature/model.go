@@ -26,8 +26,8 @@ type FrontMatter struct {
 	Updated      string   `yaml:"updated" json:"updated"`
 	Labels       []string `yaml:"labels" json:"labels"`
 	Dependencies []string `yaml:"dependencies" json:"dependencies"`
-	Epic         string   `yaml:"epic" json:"epic"`
-	RiskNotes    string   `yaml:"risk_notes" json:"risk_notes"`
+	Epic         string   `yaml:"epic,omitempty" json:"epic,omitempty"`
+	RiskNotes    string   `yaml:"risk_notes,omitempty" json:"risk_notes,omitempty"`
 }
 
 // Feature wraps a feature spec file with parsed components.

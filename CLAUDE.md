@@ -134,8 +134,9 @@ created: 2024-01-01
 updated: 2024-01-01
 labels: [tag1, tag2]
 dependencies: []
-epic: ""
-risk_notes: ""
+# Optional fields (omitted when empty):
+# epic: "EPIC-001"
+# risk_notes: "High risk due to external dependencies"
 ---
 
 ## Overview
