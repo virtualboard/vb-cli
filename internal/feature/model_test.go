@@ -143,3 +143,59 @@ func TestSetFieldAndHelpers(t *testing.T) {
 		t.Fatalf("expected empty list for blanks: %#v", list)
 	}
 }
+
+func TestOptionalFieldsOmitted(t *testing.T) {
+	// Feature without epic and risk_notes fields
+	minimalFeature := `---
+id: FTR-0003
+title: Minimal Feature
+status: backlog
+owner: ""
+priority: low
+complexity: XS
+created: 2023-01-01
+updated: 2023-01-01
+labels: []
+dependencies: []
+---
+
+## Summary
+
+Minimal feature without optional fields.
+`
+	feat, err := Parse("/tmp/minimal.md", []byte(minimalFeature))
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	// Verify epic and risk_notes are empty strings (zero values)
+	if feat.FrontMatter.Epic != "" {
+		t.Fatalf("expected empty epic, got: %s", feat.FrontMatter.Epic)
+	}
+	if feat.FrontMatter.RiskNotes != "" {
+		t.Fatalf("expected empty risk_notes, got: %s", feat.FrontMatter.RiskNotes)
+	}
+
+	// Re-encode and verify optional fields are omitted from output
+	encoded, err := feat.Encode()
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+
+	encodedStr := string(encoded)
+	// With omitempty, these fields should not appear in the YAML when empty
+	if strings.Contains(encodedStr, "epic:") {
+		t.Fatalf("expected epic field to be omitted from YAML when empty, got: %s", encodedStr)
+	}
+	if strings.Contains(encodedStr, "risk_notes:") {
+		t.Fatalf("expected risk_notes field to be omitted from YAML when empty, got: %s", encodedStr)
+	}
+
+	// Verify required fields are still present
+	if !strings.Contains(encodedStr, "id: FTR-0003") {
+		t.Fatalf("expected id field in encoded output")
+	}
+	if !strings.Contains(encodedStr, "title: Minimal Feature") {
+		t.Fatalf("expected title field in encoded output")
+	}
+}
