@@ -172,7 +172,7 @@ func readTemplateVersion(targetPath string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func handleUpdate(cmd *cobra.Command, opts *config.Options, targetPath string, fileFilter []string) error {
+func handleUpdate(cmd *cobra.Command, opts *config.Options, targetPath string, fileFilter []string, autoYes bool) error {
 	// Check if workspace exists
 	exists, err := pathExists(targetPath)
 	if err != nil {
@@ -249,7 +249,7 @@ func handleUpdate(cmd *cobra.Command, opts *config.Options, targetPath string, f
 	}
 
 	// Interactive update process
-	applied, err := applyUpdates(opts, targetPath, diff)
+	applied, err := applyUpdates(opts, targetPath, diff, autoYes)
 	if err != nil {
 		return WrapCLIError(ExitCodeFilesystem, fmt.Errorf("failed to apply updates: %w", err))
 	}
@@ -307,49 +307,116 @@ func displayUpdateSummary(diff *templatediff.TemplateDiff, currentVersion, newVe
 		fmt.Fprintf(os.Stderr, "Upgrading template: %s → %s\n\n", currentVersion, newVersion)
 	}
 
+	// Calculate line statistics
+	addedLinesTotal := 0
+	removedLinesTotal := 0
+	addedLinesFromNew := 0
+	addedLinesFromMod := 0
+	removedLinesFromMod := 0
+	removedLinesFromRem := 0
+
+	for _, fd := range diff.Added {
+		lines := countLines(fd.RemoteContent)
+		addedLinesFromNew += lines
+		addedLinesTotal += lines
+	}
+
+	for _, fd := range diff.Modified {
+		add, rem := countDiffLines(fd.UnifiedDiff)
+		addedLinesFromMod += add
+		removedLinesFromMod += rem
+		addedLinesTotal += add
+		removedLinesTotal += rem
+	}
+
+	for _, fd := range diff.Removed {
+		lines := countLines(fd.LocalContent)
+		removedLinesFromRem += lines
+		removedLinesTotal += lines
+	}
+
 	fmt.Fprintln(os.Stderr, "Changes detected:")
 	if len(diff.Added) > 0 {
-		fmt.Fprintf(os.Stderr, "  %d file(s) added\n", len(diff.Added))
+		fmt.Fprintf(os.Stderr, "  %d file(s) added (+%d lines)\n", len(diff.Added), addedLinesFromNew)
 	}
 	if len(diff.Modified) > 0 {
-		fmt.Fprintf(os.Stderr, "  %d file(s) modified\n", len(diff.Modified))
+		fmt.Fprintf(os.Stderr, "  %d file(s) modified (+%d, -%d lines)\n", len(diff.Modified), addedLinesFromMod, removedLinesFromMod)
 	}
 	if len(diff.Removed) > 0 {
-		fmt.Fprintf(os.Stderr, "  %d file(s) removed\n", len(diff.Removed))
+		fmt.Fprintf(os.Stderr, "  %d file(s) removed (-%d lines)\n", len(diff.Removed), removedLinesFromRem)
 	}
 	fmt.Fprintln(os.Stderr, "")
 
-	// List new files
+	// List new files with line counts
 	if len(diff.Added) > 0 {
 		fmt.Fprintln(os.Stderr, "New files:")
 		for i, fd := range diff.Added {
-			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, fd.Path)
+			lines := countLines(fd.RemoteContent)
+			fmt.Fprintf(os.Stderr, "  %d. %s (+%d lines)\n", i+1, fd.Path, lines)
 		}
 		fmt.Fprintln(os.Stderr, "")
 	}
 
-	// List modified files
+	// List modified files with line counts
 	if len(diff.Modified) > 0 {
 		fmt.Fprintln(os.Stderr, "Modified files:")
 		for i, fd := range diff.Modified {
-			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, fd.Path)
+			add, rem := countDiffLines(fd.UnifiedDiff)
+			fmt.Fprintf(os.Stderr, "  %d. %s (+%d, -%d lines)\n", i+1, fd.Path, add, rem)
 		}
 		fmt.Fprintln(os.Stderr, "")
 	}
 
-	// List removed files
+	// List removed files with line counts
 	if len(diff.Removed) > 0 {
 		fmt.Fprintln(os.Stderr, "Removed files:")
 		for i, fd := range diff.Removed {
-			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, fd.Path)
+			lines := countLines(fd.LocalContent)
+			fmt.Fprintf(os.Stderr, "  %d. %s (-%d lines)\n", i+1, fd.Path, lines)
 		}
 		fmt.Fprintln(os.Stderr, "")
 	}
 }
 
-func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.TemplateDiff) (int, error) {
+// countLines counts the number of lines in content
+func countLines(content []byte) int {
+	if len(content) == 0 {
+		return 0
+	}
+	return len(strings.Split(string(content), "\n"))
+}
+
+// countDiffLines counts added and removed lines in a unified diff
+// Returns (added, removed) line counts
+func countDiffLines(diff string) (int, int) {
+	added := 0
+	removed := 0
+
+	lines := strings.Split(diff, "\n")
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		// Count actual diff lines, not headers
+		switch line[0] {
+		case '+':
+			if !strings.HasPrefix(line, "+++") {
+				added++
+			}
+		case '-':
+			if !strings.HasPrefix(line, "---") {
+				removed++
+			}
+		}
+	}
+
+	return added, removed
+}
+
+func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.TemplateDiff, autoYes bool) (int, error) {
 	applied := 0
-	applyAll := false
+	applyAll := autoYes // If --yes flag is set, apply all changes automatically
 
 	// Process new files first
 	for _, fd := range diff.Added {
@@ -369,7 +436,9 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 		fmt.Fprintln(os.Stderr, "")
 
 		if !applyAll {
-			choice, err := util.PromptUser("Add this file?")
+			// Use enhanced prompting for interactive mode
+			fullPath := filepath.Join(targetPath, fd.Path)
+			choice, err := util.PromptUserEnhanced("Add this file?", string(fd.RemoteContent), fullPath)
 			if err != nil {
 				return applied, fmt.Errorf("failed to read user input: %w", err)
 			}
@@ -383,6 +452,15 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 				applyAll = true
 			case util.PromptChoiceQuit:
 				return applied, nil
+			case util.PromptChoiceEdit:
+				// User edited the file, re-prompt for this file
+				fmt.Fprintln(os.Stderr, "File created for editing. You can now apply the change.")
+				// Create the file first so they can edit it
+				if err := applyFileDiff(targetPath, &fd); err != nil {
+					return applied, err
+				}
+				applied++
+				continue
 			default:
 				fmt.Fprintln(os.Stderr, "Invalid choice, skipping...")
 				continue
@@ -409,11 +487,15 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
 		fmt.Fprintf(os.Stderr, "Modified file: %s\n", fd.Path)
 		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
-		fmt.Fprintln(os.Stderr, fd.UnifiedDiff)
+		// Colorize diff output for better readability
+		colorizedDiff := util.ColorizeDiff(fd.UnifiedDiff)
+		fmt.Fprintln(os.Stderr, colorizedDiff)
 		fmt.Fprintln(os.Stderr, "")
 
 		if !applyAll {
-			choice, err := util.PromptUser("Apply this change?")
+			// Use enhanced prompting for interactive mode
+			fullPath := filepath.Join(targetPath, fd.Path)
+			choice, err := util.PromptUserEnhanced("Apply this change?", colorizedDiff, fullPath)
 			if err != nil {
 				return applied, fmt.Errorf("failed to read user input: %w", err)
 			}
@@ -427,6 +509,10 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 				applyAll = true
 			case util.PromptChoiceQuit:
 				return applied, nil
+			case util.PromptChoiceEdit:
+				// User manually edited the file, ask if they want to skip applying the remote version
+				fmt.Fprintln(os.Stderr, "File edited. Skipping automatic application of remote changes.")
+				continue
 			default:
 				fmt.Fprintln(os.Stderr, "Invalid choice, skipping...")
 				continue
@@ -456,7 +542,9 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 		fmt.Fprintln(os.Stderr, "")
 
 		if !applyAll {
-			choice, err := util.PromptUser("Remove this file?")
+			// Use enhanced prompting for interactive mode
+			fullPath := filepath.Join(targetPath, fd.Path)
+			choice, err := util.PromptUserEnhanced("Remove this file?", string(fd.LocalContent), fullPath)
 			if err != nil {
 				return applied, fmt.Errorf("failed to read user input: %w", err)
 			}
@@ -470,6 +558,10 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 				applyAll = true
 			case util.PromptChoiceQuit:
 				return applied, nil
+			case util.PromptChoiceEdit:
+				// For removed files, editing doesn't make sense. Just skip the removal.
+				fmt.Fprintln(os.Stderr, "Skipping file removal. File will be kept.")
+				continue
 			default:
 				fmt.Fprintln(os.Stderr, "Invalid choice, skipping...")
 				continue
@@ -528,6 +620,7 @@ func newInitCommand() *cobra.Command {
 	var force bool
 	var update bool
 	var files []string
+	var yes bool
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -552,7 +645,7 @@ Use --files to update only specific files when using --update.`,
 
 			// Handle --update flag
 			if update {
-				return handleUpdate(cmd, opts, targetPath, files)
+				return handleUpdate(cmd, opts, targetPath, files, yes)
 			}
 
 			// Original init logic
@@ -604,6 +697,7 @@ Use --files to update only specific files when using --update.`,
 	cmd.Flags().BoolVar(&force, "force", false, "Recreate the VirtualBoard workspace even if it already exists")
 	cmd.Flags().BoolVar(&update, "update", false, "Update existing workspace to latest template version")
 	cmd.Flags().StringSliceVar(&files, "files", nil, "Specific files to update (only valid with --update)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Automatically apply all changes without prompting (only valid with --update)")
 	cmd.SilenceUsage = true
 	return cmd
 }
