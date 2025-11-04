@@ -47,8 +47,8 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 		remotePath := filepath.Join(remoteDir, relPath)
 		localPath := filepath.Join(localDir, relPath)
 
-		// Skip feature files - we only care about template infrastructure
-		if isFeatureFile(relPath) {
+		// Skip feature files and other excluded files
+		if isFeatureFile(relPath) || shouldSkipFile(relPath) {
 			continue
 		}
 
@@ -80,7 +80,7 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 
 	// Check for removed files
 	for _, relPath := range localFiles {
-		if !remoteMap[relPath] && !isFeatureFile(relPath) {
+		if !remoteMap[relPath] && !isFeatureFile(relPath) && !shouldSkipFile(relPath) {
 			localPath := filepath.Join(localDir, relPath)
 			content, err := os.ReadFile(localPath) // #nosec G304 -- path is from validated local directory
 			if err != nil {
@@ -163,16 +163,40 @@ func collectFiles(root string) ([]string, error) {
 			return err
 		}
 
+		// Don't skip the root directory itself, even if it starts with a dot
+		isRoot := path == root
+
 		// Skip .git directory
-		if d.IsDir() && d.Name() == ".git" {
+		if !isRoot && d.IsDir() && d.Name() == ".git" {
 			return filepath.SkipDir
 		}
 
-		if !d.IsDir() {
-			relPath, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
+		// Skip dotfiles and directories (like .pre-commit-config.yaml, .github, etc.)
+		// But don't skip the root directory itself
+		if !isRoot && strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
 			}
+			return nil
+		}
+
+		// Get relative path for directory checks
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+
+		// Skip docs and reports directories
+		if d.IsDir() {
+			skipDirs := []string{"docs", "reports"}
+			for _, skipDir := range skipDirs {
+				if d.Name() == skipDir || strings.HasPrefix(relPath, skipDir+string(filepath.Separator)) {
+					return filepath.SkipDir
+				}
+			}
+		}
+
+		if !d.IsDir() {
 			files = append(files, relPath)
 		}
 
@@ -198,6 +222,15 @@ func isFeatureFile(relPath string) bool {
 				return true
 			}
 		}
+	}
+	return false
+}
+
+// shouldSkipFile returns true if the file should be skipped during template comparison
+func shouldSkipFile(relPath string) bool {
+	// Skip features/INDEX.md - user-specific index file
+	if relPath == "features/INDEX.md" || relPath == filepath.Join("features", "INDEX.md") {
+		return true
 	}
 	return false
 }

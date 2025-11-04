@@ -292,6 +292,48 @@ func TestIsFeatureFile(t *testing.T) {
 	}
 }
 
+func TestShouldSkipFile(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{
+			name: "features/INDEX.md should be skipped",
+			path: "features/INDEX.md",
+			want: true,
+		},
+		{
+			name: "features/INDEX.md with filepath.Join should be skipped",
+			path: filepath.Join("features", "INDEX.md"),
+			want: true,
+		},
+		{
+			name: "regular file should not be skipped",
+			path: "README.md",
+			want: false,
+		},
+		{
+			name: "feature file should not be skipped by this function",
+			path: "features/backlog/FEAT-001-test.md",
+			want: false,
+		},
+		{
+			name: "templates file should not be skipped",
+			path: "templates/spec.md",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldSkipFile(tt.path); got != tt.want {
+				t.Errorf("shouldSkipFile(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSortFileDiffs(t *testing.T) {
 	diffs := []FileDiff{
 		{Path: "z.txt"},
@@ -381,5 +423,77 @@ func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("Failed to write test file %s: %v", path, err)
+	}
+}
+
+func TestCollectFiles_SkipsDotfilesAndDocs(t *testing.T) {
+	testDir := t.TempDir()
+
+	// Create regular files that should be collected
+	writeFile(t, filepath.Join(testDir, "README.md"), "readme")
+	writeFile(t, filepath.Join(testDir, "schema.json"), "schema")
+
+	// Create dotfiles that should be skipped
+	writeFile(t, filepath.Join(testDir, ".gitignore"), "gitignore")
+	writeFile(t, filepath.Join(testDir, ".pre-commit-config.yaml"), "pre-commit")
+
+	// Create dotdirectory that should be skipped
+	dotDir := filepath.Join(testDir, ".github", "workflows")
+	if err := os.MkdirAll(dotDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dotDir, "test.yml"), "workflow")
+
+	// Create docs folder that should be skipped
+	docsDir := filepath.Join(testDir, "docs")
+	if err := os.MkdirAll(docsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(docsDir, "guide.md"), "guide")
+
+	// Create nested docs files that should be skipped
+	nestedDocsDir := filepath.Join(testDir, "docs", "api")
+	if err := os.MkdirAll(nestedDocsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(nestedDocsDir, "reference.md"), "reference")
+
+	// Create reports folder that should be skipped
+	reportsDir := filepath.Join(testDir, "reports")
+	if err := os.MkdirAll(reportsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(reportsDir, "report.md"), "report")
+
+	// Collect files
+	files, err := collectFiles(testDir)
+	if err != nil {
+		t.Fatalf("collectFiles() error = %v", err)
+	}
+
+	// Verify only non-dotfiles and non-docs are collected
+	expectedFiles := map[string]bool{
+		"README.md":   true,
+		"schema.json": true,
+	}
+
+	if len(files) != len(expectedFiles) {
+		t.Errorf("Expected %d files, got %d: %v", len(expectedFiles), len(files), files)
+	}
+
+	for _, file := range files {
+		if !expectedFiles[file] {
+			t.Errorf("Unexpected file collected: %s", file)
+		}
+	}
+
+	// Verify dotfiles, docs, and reports are NOT in the results
+	unexpectedPatterns := []string{".gitignore", ".pre-commit", ".github", "docs/", "reports/", "."}
+	for _, file := range files {
+		for _, pattern := range unexpectedPatterns {
+			if filepath.Base(file) == pattern || filepath.Dir(file) == "docs" || filepath.Dir(file) == "reports" {
+				t.Errorf("File should have been skipped: %s (matches pattern: %s)", file, pattern)
+			}
+		}
 	}
 }

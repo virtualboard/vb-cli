@@ -21,14 +21,32 @@ Initialise the current directory with the VirtualBoard template. Downloads the l
 - `--force` – Re-create an existing workspace (previous contents are removed)
 - `--update` – Update an existing workspace to the latest template version (interactive file-by-file diff and apply)
 - `--files <file1,file2,...>` – When using `--update`, only update specific files (comma-separated list of relative paths)
+- `--yes` – Automatically apply all changes without prompting (only valid with `--update`)
 
 **Update Workflow:**
 When using `--update`, vb will:
 1. Fetch the latest template from GitHub
 2. Compare it with your local `.virtualboard/` directory
-3. Show a summary of changes (added, modified, removed files)
-4. For each change, display a unified diff and prompt for confirmation
+3. Show an enhanced summary with line counts (added, modified, removed files with statistics)
+4. For each change, display a color-coded unified diff and prompt for confirmation
 5. Apply selected changes and track the template version in `.template-version`
+
+**Interactive Prompts (Yeoman-style):**
+During `--update`, you'll be prompted with these options for each file:
+- **y** – Apply this change
+- **n** – Skip this change
+- **a** – Apply this change and all remaining changes automatically
+- **q** – Quit update process (no more changes will be applied)
+- **d** – Show the diff/content again (up to 5 times per file)
+- **e** – Open file in $EDITOR for manual merging
+- **h** – Show help text with all options
+
+**Enhanced Features:**
+- **Color-coded diffs**: Green for additions (+), red for deletions (-), cyan for headers
+- **Line count statistics**: See how many lines are added/removed in each file and overall
+- **Diff pagination**: Long diffs automatically open in your $PAGER (less/more)
+- **Manual editing**: Use 'e' to open files in your editor for manual conflict resolution
+- **Repeatable viewing**: Press 'd' to review diffs multiple times before deciding
 
 **Examples:**
 
@@ -36,8 +54,11 @@ When using `--update`, vb will:
 # Initialize a new workspace
 vb init
 
-# Update all template files interactively
+# Update all template files interactively (with enhanced prompts)
 vb init --update
+
+# Update automatically without prompts
+vb init --update --yes
 
 # Update only specific files
 vb init --update --files README.md,schema.json
@@ -45,7 +66,7 @@ vb init --update --files README.md,schema.json
 # Preview changes without applying (dry-run)
 vb init --update --dry-run
 
-# Update automatically in JSON mode (no prompts)
+# Update automatically in JSON mode (no prompts, machine-readable output)
 vb init --update --json
 ```
 
