@@ -580,3 +580,71 @@ func TestApplyFileDiff(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldSkipTemplateFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantSkip bool
+	}{
+		{
+			name:     "skip dotfile in root",
+			path:     ".pre-commit-config.yaml",
+			wantSkip: true,
+		},
+		{
+			name:     "skip dotfile in subdirectory",
+			path:     "subdir/.gitignore",
+			wantSkip: true,
+		},
+		{
+			name:     "skip dotdirectory",
+			path:     ".github/workflows/test.yml",
+			wantSkip: true,
+		},
+		{
+			name:     "skip docs folder root file",
+			path:     "docs/README.md",
+			wantSkip: true,
+		},
+		{
+			name:     "skip docs folder nested file",
+			path:     "docs/guide/intro.md",
+			wantSkip: true,
+		},
+		{
+			name:     "allow normal file",
+			path:     "README.md",
+			wantSkip: false,
+		},
+		{
+			name:     "allow schema file",
+			path:     "schema.json",
+			wantSkip: false,
+		},
+		{
+			name:     "allow features folder",
+			path:     "features/backlog/FEAT-001-example.md",
+			wantSkip: false,
+		},
+		{
+			name:     "allow templates folder",
+			path:     "templates/feature.md",
+			wantSkip: false,
+		},
+		{
+			name:     "skip template-version dotfile",
+			path:     ".template-version",
+			wantSkip: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldSkipTemplateFile(tt.path)
+			if got != tt.wantSkip {
+				t.Errorf("shouldSkipTemplateFile(%q) = %v, want %v", tt.path, got, tt.wantSkip)
+			}
+		})
+	}
+}

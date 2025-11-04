@@ -24,6 +24,15 @@ const (
 	PromptChoiceUnknown PromptChoice = "unknown"
 )
 
+// UpdateChoice represents a user's choice for template update workflow
+type UpdateChoice string
+
+const (
+	UpdateChoiceApplyAll    UpdateChoice = "apply_all"
+	UpdateChoiceReviewFiles UpdateChoice = "review_files"
+	UpdateChoiceQuit        UpdateChoice = "quit"
+)
+
 // PromptUser prompts the user with a question and returns their choice
 func PromptUser(question string) (PromptChoice, error) {
 	fmt.Fprintf(os.Stderr, "%s [y]es / [n]o / [a]ll / [q]uit: ", question)
@@ -79,7 +88,7 @@ func PromptUserEnhanced(question string, content string, filePath string) (Promp
 	diffShownCount := 0
 
 	for {
-		fmt.Fprintf(os.Stderr, "%s [y]es / [n]o / [a]ll / [q]uit / [d]iff / [e]dit / [h]elp: ", question)
+		fmt.Fprintf(os.Stderr, "%s [y]es / [n]o / [a]ll / [q]uit / [d]etails / [e]dit / [h]elp: ", question)
 
 		reader := bufio.NewReader(os.Stdin)
 		response, err := reader.ReadString('\n')
@@ -132,7 +141,7 @@ func DisplayPromptHelp() {
 	fmt.Fprintln(os.Stderr, "  n - Skip this change")
 	fmt.Fprintln(os.Stderr, "  a - Apply this change and all remaining changes automatically")
 	fmt.Fprintln(os.Stderr, "  q - Quit update process (no more changes will be applied)")
-	fmt.Fprintln(os.Stderr, "  d - Show the diff/content again (up to 5 times per file)")
+	fmt.Fprintln(os.Stderr, "  d - Show full details (complete file or diff, up to 5 times per file)")
 	fmt.Fprintln(os.Stderr, "  e - Open file in editor for manual merging")
 	fmt.Fprintln(os.Stderr, "  h - Show this help")
 	fmt.Fprintln(os.Stderr, "")
@@ -209,6 +218,39 @@ func getTerminalHeight() int {
 		}
 	}
 	return 0
+}
+
+// ClearScreen clears the terminal screen
+func ClearScreen() {
+	// ANSI escape code to clear screen and move cursor to top-left
+	fmt.Fprint(os.Stderr, "\033[2J\033[H")
+}
+
+// PromptUserForUpdate prompts the user after displaying update summary
+// Options: y=apply all, n=review files one-by-one, q=quit
+func PromptUserForUpdate(question string) (UpdateChoice, error) {
+	fmt.Fprintf(os.Stderr, "%s [y=apply all / n=review files / q=quit]: ", question)
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return UpdateChoiceQuit, fmt.Errorf("failed to read user input: %w", err)
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	switch response {
+	case "y", "yes":
+		return UpdateChoiceApplyAll, nil
+	case "n", "no":
+		return UpdateChoiceReviewFiles, nil
+	case "q", "quit":
+		return UpdateChoiceQuit, nil
+	default:
+		// Default to review files (safer option)
+		fmt.Fprintln(os.Stderr, "Invalid choice, defaulting to file-by-file review")
+		return UpdateChoiceReviewFiles, nil
+	}
 }
 
 // ColorCode represents ANSI color codes for terminal output

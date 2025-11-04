@@ -78,6 +78,12 @@ var fetchTemplate fetchTemplateFunc = func(workdir, dest string) error {
 			continue
 		}
 		relative := parts[1]
+
+		// Skip dotfiles and docs folder
+		if shouldSkipTemplateFile(relative) {
+			continue
+		}
+
 		outPath := filepath.Join(targetRoot, relative)
 		clean := filepath.Clean(outPath)
 		if !strings.HasPrefix(clean, targetRoot) {
@@ -246,6 +252,26 @@ func handleUpdate(cmd *cobra.Command, opts *config.Options, targetPath string, f
 			"removed":         len(diff.Removed),
 			"files":           collectFilePaths(diff),
 		})
+	}
+
+	// Ask user if they want to proceed (unless --yes flag is set or JSON mode)
+	if !opts.JSONOutput && !autoYes {
+		fmt.Fprintln(os.Stderr, "")
+		choice, err := util.PromptUserForUpdate("Apply all changes?")
+		if err != nil {
+			return WrapCLIError(ExitCodeUnknown, fmt.Errorf("failed to read user input: %w", err))
+		}
+
+		switch choice {
+		case util.UpdateChoiceApplyAll:
+			autoYes = true // Apply all without further prompts
+		case util.UpdateChoiceReviewFiles:
+			// Continue to file-by-file review (autoYes stays false)
+		case util.UpdateChoiceQuit:
+			return respond(cmd, opts, true, "Update cancelled by user", map[string]interface{}{
+				"cancelled": true,
+			})
+		}
 	}
 
 	// Interactive update process
@@ -429,10 +455,24 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 			continue
 		}
 
-		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
-		fmt.Fprintf(os.Stderr, "New file: %s\n", fd.Path)
-		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
-		fmt.Fprintln(os.Stderr, string(fd.RemoteContent))
+		// Clear screen before showing each file
+		util.ClearScreen()
+
+		fmt.Fprintln(os.Stderr, strings.Repeat("=", 60))
+		lines := strings.Split(string(fd.RemoteContent), "\n")
+		totalLines := len(lines)
+		fmt.Fprintf(os.Stderr, "NEW FILE: %s (%d lines)\n", fd.Path, totalLines)
+		fmt.Fprintln(os.Stderr, strings.Repeat("=", 60))
+
+		// Show first 20 lines as preview
+		previewLines := 20
+		if totalLines <= previewLines {
+			fmt.Fprintln(os.Stderr, string(fd.RemoteContent))
+		} else {
+			preview := strings.Join(lines[:previewLines], "\n")
+			fmt.Fprintln(os.Stderr, preview)
+			fmt.Fprintf(os.Stderr, "\n... (%d more lines, press 'd' to view full details)\n", totalLines-previewLines)
+		}
 		fmt.Fprintln(os.Stderr, "")
 
 		if !applyAll {
@@ -484,12 +524,34 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 			continue
 		}
 
-		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
-		fmt.Fprintf(os.Stderr, "Modified file: %s\n", fd.Path)
-		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		// Clear screen before showing each file
+		util.ClearScreen()
+
+		fmt.Fprintln(os.Stderr, strings.Repeat("=", 60))
+		fmt.Fprintf(os.Stderr, "MODIFIED FILE: %s\n", fd.Path)
+		fmt.Fprintln(os.Stderr, strings.Repeat("=", 60))
+
 		// Colorize diff output for better readability
-		colorizedDiff := util.ColorizeDiff(fd.UnifiedDiff)
-		fmt.Fprintln(os.Stderr, colorizedDiff)
+		var colorizedDiff string
+		if fd.UnifiedDiff == "" {
+			fmt.Fprintln(os.Stderr, "Warning: No diff available for this file")
+			colorizedDiff = ""
+		} else {
+			colorizedDiff = util.ColorizeDiff(fd.UnifiedDiff)
+
+			// Show preview of diff if it's too long
+			lines := strings.Split(colorizedDiff, "\n")
+			totalLines := len(lines)
+			previewLines := 30
+
+			if totalLines <= previewLines {
+				fmt.Fprintln(os.Stderr, colorizedDiff)
+			} else {
+				preview := strings.Join(lines[:previewLines], "\n")
+				fmt.Fprintln(os.Stderr, preview)
+				fmt.Fprintf(os.Stderr, "\n... (%d more lines, press 'd' to view full diff)\n", totalLines-previewLines)
+			}
+		}
 		fmt.Fprintln(os.Stderr, "")
 
 		if !applyAll {
@@ -536,9 +598,12 @@ func applyUpdates(opts *config.Options, targetPath string, diff *templatediff.Te
 			continue
 		}
 
-		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
-		fmt.Fprintf(os.Stderr, "Removed file: %s\n", fd.Path)
-		fmt.Fprintln(os.Stderr, strings.Repeat("-", 60))
+		// Clear screen before showing each file
+		util.ClearScreen()
+
+		fmt.Fprintln(os.Stderr, strings.Repeat("=", 60))
+		fmt.Fprintf(os.Stderr, "REMOVED FILE: %s\n", fd.Path)
+		fmt.Fprintln(os.Stderr, strings.Repeat("=", 60))
 		fmt.Fprintln(os.Stderr, "")
 
 		if !applyAll {
@@ -711,4 +776,26 @@ func pathExists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// shouldSkipTemplateFile returns true if the file should be skipped during template operations
+// Skips: dotfiles (like .pre-commit-config.yaml) and docs/ folder
+func shouldSkipTemplateFile(relPath string) bool {
+	// Normalize path separators
+	normalized := filepath.ToSlash(relPath)
+	parts := strings.Split(normalized, "/")
+
+	// Skip any file or directory starting with a dot
+	for _, part := range parts {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+
+	// Skip docs folder
+	if len(parts) > 0 && parts[0] == "docs" {
+		return true
+	}
+
+	return false
 }
