@@ -24,9 +24,11 @@ All notable changes to this project will be documented in this file. The format 
 - Enhanced testutil fixture to include specs directory and system-spec schema
 - Documentation updated in CLI.md and README.md to reflect new validation capabilities
 
+## [v0.5.0] - 2025-12-16
+
 ### Fixed
 
-- N/A
+- Updated dependencies
 
 ## [v0.4.0] - 2025-10-27
 
