@@ -25,6 +25,7 @@ func NewFixture(t *testing.T) *Fixture {
 		"features/blocked",
 		"features/review",
 		"features/done",
+		"specs",
 		"templates",
 		"schemas",
 		"locks",
@@ -84,6 +85,62 @@ Additional details.
 }`
 	if err := os.WriteFile(filepath.Join(workspace, "schemas", "frontmatter.schema.json"), []byte(schema), 0o600); err != nil {
 		t.Fatalf("failed to write schema: %v", err)
+	}
+
+	specSchema := `{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["spec_type", "title", "status", "last_updated", "applicability"],
+  "properties": {
+    "spec_type": {
+      "type": "string",
+      "enum": [
+        "tech-stack",
+        "local-development",
+        "hosting-and-infrastructure",
+        "ci-cd-pipeline",
+        "database-schema",
+        "caching-and-performance",
+        "security-and-compliance",
+        "observability-and-incident-response"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 3
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "approved", "deprecated"]
+    },
+    "last_updated": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "applicability": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "owner": {
+      "type": "string"
+    },
+    "related_initiatives": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$"
+      }
+    }
+  },
+  "additionalProperties": false
+}`
+	if err := os.WriteFile(filepath.Join(workspace, "schemas", "system-spec.schema.json"), []byte(specSchema), 0o600); err != nil {
+		t.Fatalf("failed to write spec schema: %v", err)
 	}
 
 	return &Fixture{Root: root}

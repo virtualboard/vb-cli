@@ -11,7 +11,8 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 
 - Initialise a repository with `vb init`, which downloads and expands the VirtualBoard template archive into `.virtualboard/`. Keep your workspace up-to-date with `vb init --update` for interactive template updates.
 - Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`).
-- Validate schema, workflow, and dependency rules with `vb validate`, and regenerate indices in Markdown/JSON/HTML with `vb index`.
+- Validate both feature specs and system specs with `vb validate`, supporting schema validation for features (workflow, dependencies) and specs (architectural blueprints). Use `--only-features` or `--only-specs` to validate specific types.
+- Regenerate indices in Markdown/JSON/HTML with `vb index`.
 - Apply opinionated templates and fixes (`vb template apply`) while maintaining 100% unit-test coverage and gosec-scanned code.
 - Self-update to the latest version with `vb upgrade`, which automatically detects your platform and downloads the appropriate binary from GitHub releases.
 
@@ -71,12 +72,14 @@ vb version
 From your repository root:
 
 ```bash
-vb init               # bootstrap .virtualboard/
-vb init --update      # update template to latest version
+vb init                      # bootstrap .virtualboard/
+vb init --update             # update template to latest version
 vb new "Awesome Feature" label1 label2
-vb validate all       # ensure specs meet schema + workflow rules
-vb index              # emit .virtualboard/features/INDEX.md
-vb upgrade            # check for and install the latest version
+vb validate                  # validate both features and system specs
+vb validate --only-features  # validate only feature specs
+vb validate --only-specs     # validate only system specs
+vb index                     # emit .virtualboard/features/INDEX.md
+vb upgrade                   # check for and install the latest version
 ```
 
 All commands support JSON/plain output, `--dry-run`, verbose logging, and respect the `.virtualboard` workspace root.
