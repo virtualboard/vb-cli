@@ -126,11 +126,55 @@ vb index -q
 vb index --format html --output docs/features.html
 ```
 
-### `vb validate [id|all]`
-Validate feature specs against schema, workflow rules, and dependency checks.
+### `vb validate [id|name|all]`
+Validate feature specs and system specs against their respective schemas and rules.
+
+By default, validates both features and specs. Use flags to validate specific types.
+
+**Arguments:**
+- `id` – Feature ID (e.g., `FTR-001`) to validate a specific feature
+- `name` – Spec filename (e.g., `tech-stack.md`) to validate a specific spec
+- `all` – Validate all features and specs (default)
 
 **Flags:**
-- `--fix` – Apply safe fixes before validating (reapply templates and sync filenames with titles)
+- `--fix` – Apply safe fixes before validating (features only: reapply templates and sync filenames with titles)
+- `--only-features` – Validate only feature specs
+- `--only-specs` – Validate only system specs
+
+**Examples:**
+
+```bash
+# Validate all features and specs
+vb validate
+
+# Validate only features
+vb validate --only-features
+
+# Validate only specs
+vb validate --only-specs
+
+# Validate specific feature by ID
+vb validate FTR-001
+
+# Validate specific spec by filename
+vb validate tech-stack.md
+```
+
+**Validation Rules:**
+
+*Features:*
+- Schema validation against `schemas/frontmatter.schema.json`
+- Workflow rules (status/directory consistency)
+- Dependency validation (cycles, missing dependencies)
+- Filename format (`{id}-{slug}.md`)
+- Date format (YYYY-MM-DD)
+
+*Specs:*
+- Schema validation against `schemas/system-spec.schema.json`
+- Required fields (spec_type, title, status, last_updated, applicability)
+- Valid spec types (tech-stack, database-schema, etc.)
+- Valid statuses (draft, approved, deprecated)
+- Date format (YYYY-MM-DD)
 
 ### `vb template apply <id>`
 Reapply the canonical template to ensure required sections and defaults exist.

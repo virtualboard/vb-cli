@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.6.0] - 2025-12-16
+
+### Added
+
+- System specification validation support in `vb validate` command
+- New `internal/spec` package for managing system specification files
+- `--only-features` flag to validate only feature specs
+- `--only-specs` flag to validate only system specs
+- Schema validation for system specs using `schemas/system-spec.schema.json`
+- Support for validating individual specs by filename (e.g., `vb validate tech-stack.md`)
+- Validation for eight system spec types: tech-stack, local-development, hosting-and-infrastructure, ci-cd-pipeline, database-schema, caching-and-performance, security-and-compliance, observability-and-incident-response
+- System spec validation rules: spec type validation, status validation (draft/approved/deprecated), date format validation, applicability requirements
+
+### Changed
+
+- `vb validate` now validates both features and system specs by default
+- `vb validate` command signature updated to `vb validate [id|name|all]` to support both feature IDs and spec filenames
+- Enhanced testutil fixture to include specs directory and system-spec schema
+- Documentation updated in CLI.md and README.md to reflect new validation capabilities
+
+### Fixed
+
+- N/A
+
 ## [v0.4.0] - 2025-10-27
 
 ### Added

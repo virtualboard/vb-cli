@@ -611,6 +611,194 @@ func TestFormatIndexOutput(t *testing.T) {
 	}
 }
 
+func TestValidateCommandWithSpecs(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, false, false, false)
+
+	// Create a feature
+	mgr := feature.NewManager(opts)
+	feat := buildFeatureFile(t, fix, mgr, "FTR-6000", "backlog", "Test Feature")
+
+	// Create a spec
+	specContent := `---
+spec_type: tech-stack
+title: Technology Stack
+status: approved
+last_updated: 2024-01-15
+applicability:
+  - backend
+---
+
+## Stack
+Technology details.`
+
+	workspace := filepath.Join(fix.Root, ".virtualboard")
+	specsDir := filepath.Join(workspace, "specs")
+	if err := os.WriteFile(filepath.Join(specsDir, "tech-stack.md"), []byte(specContent), 0o600); err != nil {
+		t.Fatalf("failed to write spec: %v", err)
+	}
+
+	// Test: validate all (both features and specs)
+	validateCmd := newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate all failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "features") || !strings.Contains(output, "specs") {
+		t.Errorf("expected output to mention both features and specs, got: %s", output)
+	}
+
+	// Test: validate --only-features
+	buf.Reset()
+	validateCmd = newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{"--only-features"})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate --only-features failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "feature") {
+		t.Errorf("expected output to mention features, got: %s", output)
+	}
+
+	// Test: validate --only-specs
+	buf.Reset()
+	validateCmd = newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{"--only-specs"})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate --only-specs failed: %v", err)
+	}
+	output = buf.String()
+	if !strings.Contains(output, "spec") {
+		t.Errorf("expected output to mention specs, got: %s", output)
+	}
+
+	// Test: validate specific feature by ID
+	buf.Reset()
+	validateCmd = newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{feat.FrontMatter.ID})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate feature by ID failed: %v", err)
+	}
+
+	// Test: validate specific spec by name
+	buf.Reset()
+	validateCmd = newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{"tech-stack.md"})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate spec by name failed: %v", err)
+	}
+}
+
+func TestValidateCommandMutuallyExclusiveFlags(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	_, buf := setupOptions(t, fix, false, false, false)
+
+	validateCmd := newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{"--only-features", "--only-specs"})
+	err := validateCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for mutually exclusive flags")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected mutually exclusive error, got: %v", err)
+	}
+}
+
+func TestValidateCommandWithInvalidSpec(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	_, buf := setupOptions(t, fix, false, false, false)
+
+	// Create an invalid spec (missing required field)
+	invalidSpecContent := `---
+spec_type: tech-stack
+title: Invalid Spec
+status: invalid-status
+last_updated: 2024-01-15
+applicability:
+  - backend
+---
+
+## Content
+Details.`
+
+	workspace := filepath.Join(fix.Root, ".virtualboard")
+	specsDir := filepath.Join(workspace, "specs")
+	if err := os.WriteFile(filepath.Join(specsDir, "invalid-spec.md"), []byte(invalidSpecContent), 0o600); err != nil {
+		t.Fatalf("failed to write spec: %v", err)
+	}
+
+	validateCmd := newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{"--only-specs"})
+	err := validateCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid spec")
+	}
+
+	// Verify error output mentions the spec
+	if !strings.Contains(buf.String(), "invalid-spec.md") {
+		t.Errorf("expected output to mention invalid-spec.md")
+	}
+}
+
+func TestValidateCommandJSONOutputWithSpecs(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, true, false, false)
+
+	// Create a feature
+	mgr := feature.NewManager(opts)
+	buildFeatureFile(t, fix, mgr, "FTR-7000", "backlog", "JSON Test Feature")
+
+	// Create a spec
+	specContent := `---
+spec_type: database-schema
+title: Database Schema
+status: draft
+last_updated: 2024-01-15
+applicability:
+  - backend
+---
+
+## Schema
+Schema details.`
+
+	workspace := filepath.Join(fix.Root, ".virtualboard")
+	specsDir := filepath.Join(workspace, "specs")
+	if err := os.WriteFile(filepath.Join(specsDir, "database-schema.md"), []byte(specContent), 0o600); err != nil {
+		t.Fatalf("failed to write spec: %v", err)
+	}
+
+	validateCmd := newValidateCommand()
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{})
+	if err := validateCmd.Execute(); err != nil {
+		t.Fatalf("validate command failed: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "\"features\"") {
+		t.Error("expected JSON output to contain features key")
+	}
+	if !strings.Contains(output, "\"specs\"") {
+		t.Error("expected JSON output to contain specs key")
+	}
+}
+
 func buildFeatureFile(t *testing.T, fix *testutil.Fixture, mgr *feature.Manager, id, status, title string) *feature.Feature {
 	t.Helper()
 	statusDir := filepath.Join(mgr.FeaturesDir(), filepath.Base(feature.DirectoryForStatus(status)))
