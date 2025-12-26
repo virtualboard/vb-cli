@@ -19,7 +19,7 @@ func TestManagerLifecycle(t *testing.T) {
 	if mgr.FeaturesDir() != filepath.Join(opts.RootDir, "features") {
 		t.Fatalf("unexpected features dir")
 	}
-	if mgr.TemplatePath() != filepath.Join(opts.RootDir, "templates", "spec.md") {
+	if mgr.TemplatePath() != filepath.Join(opts.RootDir, "templates", "feature.md") {
 		t.Fatalf("unexpected template path")
 	}
 	if mgr.SchemaPath() != filepath.Join(opts.RootDir, "schemas", "frontmatter.schema.json") {
