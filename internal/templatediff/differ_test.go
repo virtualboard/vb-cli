@@ -273,7 +273,7 @@ func TestIsFeatureFile(t *testing.T) {
 		},
 		{
 			name: "file in templates",
-			path: "templates/spec.md",
+			path: "templates/feature.md",
 			want: false,
 		},
 		{
@@ -320,7 +320,7 @@ func TestShouldSkipFile(t *testing.T) {
 		},
 		{
 			name: "templates file should not be skipped",
-			path: "templates/spec.md",
+			path: "templates/feature.md",
 			want: false,
 		},
 	}

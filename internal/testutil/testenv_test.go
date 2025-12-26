@@ -9,7 +9,7 @@ import (
 func TestFixtureLifecycle(t *testing.T) {
 	fix := NewFixture(t)
 	workspace := filepath.Join(fix.Root, ".virtualboard")
-	if _, err := os.Stat(filepath.Join(workspace, "templates", "spec.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(workspace, "templates", "feature.md")); err != nil {
 		t.Fatalf("expected template file: %v", err)
 	}
 

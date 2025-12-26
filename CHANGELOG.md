@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.6.1] - 2025-12-26
+
+### Fixed
+
+- Fixed template path reference from `spec.md` to `feature.md` in feature manager and tests
+
 ## [v0.6.0] - 2025-12-16
 
 ### Added
