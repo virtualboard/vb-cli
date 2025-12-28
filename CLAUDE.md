@@ -84,7 +84,13 @@ make version-bump VERSION=v1.2.3
 - `sections.go` - Body section parsing/manipulation (H2 headings)
 - `errors.go` - Custom error types (`InvalidFileError` for batch parse failures)
 
-**`internal/validator/`** - Validation engine
+**`internal/spec/`** - System specification management
+- `model.go` - System spec struct with YAML frontmatter (spec_type, title, status, applicability)
+- `manager.go` - CRUD operations for system spec files
+- `validator.go` - Validation against `schemas/system-spec.schema.json`
+- Supports 8 spec types: tech-stack, local-development, hosting-and-infrastructure, ci-cd-pipeline, database-schema, caching-and-performance, security-and-compliance, observability-and-incident-response
+
+**`internal/validator/`** - Feature validation engine
 - JSON schema validation via `gojsonschema`
 - Workflow rules (status → directory consistency)
 - Dependency cycle detection
@@ -103,10 +109,17 @@ make version-bump VERSION=v1.2.3
 - Ensures required sections exist in feature specs
 - Non-destructive fixes
 
+**`internal/templatediff/`** - Template update diffing
+- Compares local `.virtualboard/` with latest template
+- Powers `vb init --update` workflow
+- Generates unified diffs with line statistics
+- Excludes user feature files from updates
+
 **`internal/util/`** - Shared utilities
 - `fs.go` - Atomic file writes with secure permissions
 - `slug.go` - URL-safe slug generation
 - `output.go` - JSON/plain text response formatting
+- `interactive/` - User prompts and confirmations for interactive workflows
 
 **`internal/config/`** - CLI options management
 - `options.go` - Global flags and configuration
@@ -152,6 +165,37 @@ Feature description here...
 - Files must be in the correct directory for their status
 - Dependencies must be `done` before moving to `in-progress`
 
+### System Spec Format
+
+System specifications are markdown files with YAML frontmatter stored in `.virtualboard/specs/`:
+
+```markdown
+---
+spec_type: tech-stack
+title: Technology Stack
+status: approved
+last_updated: 2024-01-15
+applicability: [backend, frontend, infrastructure]
+owner: platform-team
+related_initiatives: []
+---
+
+## Overview
+System specification content here...
+```
+
+**Valid Spec Types**:
+- `tech-stack` - Technology stack decisions
+- `local-development` - Local development environment
+- `hosting-and-infrastructure` - Deployment infrastructure
+- `ci-cd-pipeline` - CI/CD configuration
+- `database-schema` - Database design
+- `caching-and-performance` - Performance optimization
+- `security-and-compliance` - Security policies
+- `observability-and-incident-response` - Monitoring and alerting
+
+**Valid Statuses**: `draft`, `approved`, `deprecated`
+
 ### Testing Architecture
 
 - **100% coverage is mandatory** - `make test` enforces this
@@ -182,27 +226,44 @@ All commands use a consistent response pattern via `cmd/helpers.go:respond()`:
 - Downloads template from GitHub (no git dependency)
 - Extracts to `.virtualboard/`
 - Validates zip archive security (path traversal, size limits)
+- Tracks template version in `.template-version`
 
-### 2. Feature Creation
+### 2. Template Update Workflow (`vb init --update`)
+- Fetches latest template from GitHub
+- Compares with local `.virtualboard/` using `internal/templatediff`
+- Shows enhanced diff summary with line counts
+- Interactive prompts for each change (y/n/a/q/d/e/h)
+- Excludes user feature files from updates
+- Applies selected changes and updates `.template-version`
+
+### 3. Feature Creation
 - Generates unique ID (FEAT-XXX)
 - Creates file in backlog with template
 - Sets timestamps, slugified filename
 
-### 3. Feature Movement
+### 4. Feature Movement
 - Validates workflow transitions
 - Moves file to status-appropriate directory
 - Updates timestamps and owner
 
-### 4. Validation
-- Schema validation via JSON schema
+### 5. Validation
+**Features:**
+- Schema validation via `schemas/frontmatter.schema.json`
 - Workflow rules (status/directory consistency)
 - Dependency resolution and cycle detection
-- Filename format checks
+- Filename format checks (`{id}-{slug}.md`)
 
-### 5. Index Generation
+**System Specs:**
+- Schema validation via `schemas/system-spec.schema.json`
+- Spec type validation (8 valid types)
+- Status validation (draft/approved/deprecated)
+- Date format validation (YYYY-MM-DD)
+
+### 6. Index Generation
 - Collects all features
 - Sorts by status/priority
 - Outputs to Markdown/JSON/HTML
+- Change detection (added, transitioned, removed)
 
 ## Critical Requirements
 
@@ -263,6 +324,18 @@ feat, err := mgr.LoadByID("FEAT-001")
 ```go
 validator, _ := validator.New(opts, mgr)
 summary, _ := validator.ValidateAll()
+```
+
+### Working with System Specs
+
+```go
+// Load a system spec
+specMgr := spec.NewManager(opts)
+systemSpec, err := specMgr.LoadByName("tech-stack.md")
+
+// Validate system specs
+specValidator, _ := spec.NewValidator(opts, specMgr)
+summary, _ := specValidator.ValidateAll()
 ```
 
 ### Atomic File Writes

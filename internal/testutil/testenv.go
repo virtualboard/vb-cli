@@ -59,7 +59,7 @@ Provide a concise summary.
 Additional details.
 
 `
-	if err := os.WriteFile(filepath.Join(workspace, "templates", "spec.md"), []byte(templateContent), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "templates", "feature.md"), []byte(templateContent), 0o600); err != nil {
 		t.Fatalf("failed to write template: %v", err)
 	}
 

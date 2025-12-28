@@ -39,9 +39,9 @@ func (m *Manager) FeaturesDir() string {
 	return filepath.Join(m.opts.RootDir, "features")
 }
 
-// TemplatePath returns the spec template path.
+// TemplatePath returns the feature template path.
 func (m *Manager) TemplatePath() string {
-	return filepath.Join(m.opts.RootDir, "templates", "spec.md")
+	return filepath.Join(m.opts.RootDir, "templates", "feature.md")
 }
 
 // SchemaPath returns the JSON schema path for validation.
