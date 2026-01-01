@@ -4,442 +4,437 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Workflow · VirtualBoard CLI</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: #f7f9fc;
-      --bg-alt: #ffffff;
-      --text: #121c2a;
-      --muted: #52606d;
-      --accent: #00d4ff;
-      --accent-dark: #00a8cc;
-      --accent-secondary: #32d74b;
-      --accent-gradient: linear-gradient(135deg, #00d4ff 0%, #32d74b 100%);
-      --logo-bg: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
-      --border: #d0d7e2;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
+  <meta name="description" content="Understanding the VirtualBoard feature specification workflow. Learn how features move from backlog to completion.">
 
-    * {
-      box-sizing: border-box;
-    }
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-    }
+  <!-- Global Styles -->
+  <link rel="stylesheet" href="globals.css">
 
-    nav {
-      background: var(--bg-alt);
-      border-bottom: 1px solid var(--border);
-      padding: 0 1.5rem;
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      box-shadow: 0 2px 8px rgba(18, 28, 42, 0.08);
-    }
-
-    nav .container {
-      max-width: 960px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 1rem 0;
-      gap: 1rem;
-    }
-
-    .nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      text-decoration: none;
-      color: var(--text);
-      font-weight: 700;
-      font-size: 1.2rem;
-    }
-
-    .nav-main {
-      display: flex;
-      align-items: center;
-      gap: 1.5rem;
-      flex: 1;
-      justify-content: flex-end;
-    }
-
-    .github-link {
-      display: flex;
-      align-items: center;
-      color: var(--muted);
-      transition: color 0.2s ease;
-    }
-
-    .github-link:hover {
-      color: var(--accent-dark);
-    }
-
-    .github-link svg {
-      width: 24px;
-      height: 24px;
-    }
-
-    .nav-brand .logo-small {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      overflow: hidden;
-    }
-
-    .nav-brand .logo-small img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .nav-links {
-      display: flex;
-      gap: 2rem;
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-
-    .nav-links a {
-      text-decoration: none;
-      color: var(--muted);
-      font-weight: 500;
-      transition: color 0.2s ease;
-      position: relative;
-    }
-
-    .nav-links a:hover,
-    .nav-links a.active {
-      color: var(--accent-dark);
-    }
-
-    .nav-links a.active::after {
-      content: '';
-      position: absolute;
-      bottom: -1.25rem;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: var(--accent-gradient);
-    }
-
-    @media (max-width: 768px) {
-      nav .container {
-        flex-direction: column;
-        gap: 1rem;
-      }
-
-      .nav-links {
-        gap: 1rem;
-        flex-wrap: wrap;
-        justify-content: center;
+  <!-- Tailwind Configuration -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            background: 'oklch(0.13 0.01 240)',
+            foreground: 'oklch(0.95 0.005 240)',
+            primary: 'oklch(0.65 0.12 220)',
+            'primary-foreground': 'oklch(0.13 0.01 240)',
+            secondary: 'oklch(0.7 0.15 190)',
+            muted: 'oklch(0.25 0.01 240)',
+            'muted-foreground': 'oklch(0.6 0.01 240)',
+            border: 'oklch(0.20 0.01 240)',
+            card: 'oklch(0.16 0.01 240)',
+            accent: 'oklch(0.75 0.18 160)',
+          }
+        }
       }
     }
-
-    header {
-      background: radial-gradient(circle at top left, rgba(0, 212, 255, 0.15), transparent 60%), var(--bg-alt);
-      padding: 3rem 1.5rem 2.5rem;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 0 1.5rem;
-    }
-
-    .page-title {
-      font-size: clamp(2rem, 4vw + 1rem, 2.8rem);
-      margin: 0;
-      letter-spacing: -0.03em;
-    }
-
-    .page-tagline {
-      font-size: 1.1rem;
-      margin: 0.75rem 0 0;
-      color: var(--muted);
-      max-width: 620px;
-    }
-
-    main {
-      padding-bottom: 2rem;
-    }
-
-    main section {
-      margin: 3.5rem 0;
-      background: var(--bg-alt);
-      border: 1px solid var(--border);
-      border-radius: 1rem;
-      padding: 2.5rem;
-      box-shadow: 0 18px 40px rgba(18, 28, 42, 0.08);
-    }
-
-    h2 {
-      margin-top: 0;
-      font-size: 1.8rem;
-      letter-spacing: -0.02em;
-    }
-
-    h3 {
-      margin-top: 0;
-      font-size: 1.25rem;
-    }
-
-    p {
-      margin: 0.75rem 0;
-    }
-
-    ul, ol {
-      padding-left: 1.5rem;
-    }
-
-    li {
-      margin: 0.5rem 0;
-    }
-
-    code, pre {
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      background: rgba(0, 212, 255, 0.08);
-      border-radius: 0.4rem;
-    }
-
-    code {
-      padding: 0.15rem 0.4rem;
-    }
-
-    pre {
-      padding: 1.2rem;
-      overflow-x: auto;
-      margin: 1.25rem 0;
-      white-space: pre-wrap;
-    }
-
-    .workflow-diagram {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 0.9rem;
-      padding: 2rem;
-      margin: 1.5rem 0;
-      text-align: center;
-      font-weight: 600;
-      color: var(--accent-dark);
-    }
-
-    .workflow-diagram span {
-      display: inline-block;
-      margin: 0 0.5rem;
-    }
-
-    .grid {
-      display: grid;
-      gap: 1.5rem;
-    }
-
-    .grid.two {
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    }
-
-    article {
-      background: var(--bg);
-      border-radius: 0.9rem;
-      padding: 1.5rem;
-      border: 1px solid var(--border);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-    }
-
-    footer {
-      text-align: center;
-      padding: 3rem 1.5rem 4rem;
-      color: var(--muted);
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f172a;
-        --bg-alt: #111c36;
-        --text: #f1f5f9;
-        --muted: #cbd5f5b3;
-        --border: #1e2a44;
-        --accent: #00d4ff;
-        --accent-dark: #00a8cc;
-        --accent-secondary: #32d74b;
-        --accent-gradient: linear-gradient(135deg, #00d4ff 0%, #32d74b 100%);
-        --logo-bg: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
-      }
-
-      main section {
-        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-      }
-
-      article {
-        background: rgba(15, 23, 42, 0.6);
-        box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
-      }
-
-      code, pre {
-        background: rgba(0, 212, 255, 0.12);
-      }
-
-      nav {
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      }
-
-      .workflow-diagram {
-        background: rgba(15, 23, 42, 0.6);
-      }
-    }
-  </style>
+  </script>
 </head>
-<body>
-  <nav>
-    <div class="container">
-      <a href="index.html" class="nav-brand">
-        <div class="logo-small">
-          <img src="avatar.png" alt="VirtualBoard CLI" />
-        </div>
-        <span>VirtualBoard CLI</span>
-      </a>
-      <div class="nav-main">
-        <ul class="nav-links">
-          <li><a href="index.html">Home</a></li>
-          <li><a href="features.html">Features</a></li>
-          <li><a href="install.html">Install</a></li>
-          <li><a href="workflow.html" class="active">Workflow</a></li>
-          <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer">Template</a></li>
-        </ul>
-        <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="github-link" aria-label="GitHub">
-          <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-          </svg>
+<body class="min-h-screen bg-background text-foreground">
+
+  <!-- Navigation -->
+  <nav class="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/50">
+    <div class="container max-w-7xl mx-auto px-6">
+      <div class="flex items-center justify-between py-4">
+        <!-- Brand -->
+        <a href="index.html" class="flex items-center gap-3 text-foreground hover:text-primary transition-all">
+          <div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+            <img src="avatar.png" alt="VirtualBoard CLI" class="w-full h-full object-cover" />
+          </div>
+          <span class="font-bold text-lg">VirtualBoard CLI</span>
         </a>
+
+        <!-- Navigation Links -->
+        <div class="flex items-center gap-8">
+          <ul class="hidden md:flex items-center gap-6">
+            <li><a href="index.html" class="text-muted-foreground hover:text-foreground transition-colors">Home</a></li>
+            <li><a href="features.html" class="text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
+            <li><a href="install.html" class="text-muted-foreground hover:text-foreground transition-colors">Install</a></li>
+            <li><a href="workflow.html" class="text-primary font-medium hover:text-primary/80 transition-colors">Workflow</a></li>
+            <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors">Template</a></li>
+          </ul>
+
+          <!-- GitHub Link -->
+          <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-primary transition-colors" aria-label="GitHub Repository">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      <!-- Mobile Navigation -->
+      <div class="md:hidden flex flex-wrap gap-4 pb-4 justify-center">
+        <a href="index.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Home</a>
+        <a href="features.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Features</a>
+        <a href="install.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Install</a>
+        <a href="workflow.html" class="text-primary font-medium text-sm">Workflow</a>
+        <a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Template</a>
       </div>
     </div>
   </nav>
 
-  <header>
-    <div class="container">
-      <h1 class="page-title">How It Works</h1>
-      <p class="page-tagline">Understanding the VirtualBoard feature specification workflow</p>
-    </div>
-  </header>
+  <main>
+    <!-- Hero Section -->
+    <section class="py-24 lg:py-32 text-center relative overflow-hidden">
+      <div class="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none"></div>
 
-  <main class="container">
-    <section>
-      <h2>Feature Status Workflow</h2>
-      <div class="workflow-diagram">
-        <span>backlog</span> → <span>in-progress</span> → <span>done</span>
-      </div>
-      <p>Features move through three distinct states, each with its own directory under <code>.virtualboard/features/</code>. The CLI enforces workflow transitions and validates that dependencies are satisfied before moving features to <code>in-progress</code>.</p>
-    </section>
-
-    <section>
-      <h2>Getting Started</h2>
-      <div class="grid two">
-        <article>
-          <h3>1. Initialize Workspace</h3>
-          <p>Start by creating a <code>.virtualboard/</code> directory structure in your repository:</p>
-          <pre><code>vb init</code></pre>
-          <p>This downloads the template archive and sets up the workspace with schema, directories, and example features.</p>
-          <p>To update an existing workspace to the latest template version:</p>
-          <pre><code>vb init --update</code></pre>
-          <p>This interactively shows changes and prompts for confirmation before applying updates.</p>
-        </article>
-        <article>
-          <h3>2. Create Features</h3>
-          <p>Scaffold new feature specs with consistent structure:</p>
-          <pre><code>vb new "User Authentication" security auth</code></pre>
-          <p>Each feature gets a unique ID, YAML frontmatter, and standard sections for documentation.</p>
-        </article>
-        <article>
-          <h3>3. Validate &amp; Move</h3>
-          <p>Check for issues and move features through the workflow:</p>
-          <pre><code>vb validate all
-vb move FEAT-001 in-progress --owner=alice</code></pre>
-          <p>Validation ensures schema compliance, dependency resolution, and workflow consistency.</p>
-        </article>
-        <article>
-          <h3>4. Generate Indexes</h3>
-          <p>Create stakeholder-friendly views of all features:</p>
-          <pre><code>vb index</code></pre>
-          <p>Outputs Markdown, JSON, and HTML indexes sorted by status and priority.</p>
-        </article>
+      <div class="container max-w-7xl mx-auto px-6 relative">
+        <h1 class="text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
+          How It <span class="text-primary">Works</span>
+        </h1>
+        <p class="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+          Understanding the VirtualBoard feature specification workflow
+        </p>
       </div>
     </section>
 
-    <section>
-      <h2>Feature Lifecycle</h2>
-      <h3>Backlog</h3>
-      <p>New features start in the backlog directory. They include:</p>
-      <ul>
-        <li>Unique feature ID (FEAT-XXX)</li>
-        <li>Title, labels, and metadata</li>
-        <li>Overview and acceptance criteria sections</li>
-        <li>Status set to <code>backlog</code></li>
-      </ul>
+    <!-- Feature Status Workflow Section -->
+    <section class="py-20 lg:py-28">
+      <div class="container max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-5xl font-bold mb-6 tracking-tight">Feature Status Workflow</h2>
+          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Features move through three distinct states
+          </p>
+        </div>
 
-      <h3>In Progress</h3>
-      <p>When work begins, features move to <code>in-progress</code>. Requirements:</p>
-      <ul>
-        <li>All dependencies must be in <code>done</code> status</li>
-        <li>Owner must be assigned (can be set during move)</li>
-        <li>No circular dependency chains</li>
-      </ul>
+        <!-- Workflow Diagram -->
+        <div class="max-w-4xl mx-auto mb-12">
+          <div class="bg-card/30 rounded-xl border border-border/50 p-8 lg:p-12">
+            <div class="flex flex-col lg:flex-row items-center justify-center gap-6 text-center">
+              <div class="flex-1">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-muted/50 border border-border/50 text-muted-foreground font-bold text-xl mb-3">
+                  📋
+                </div>
+                <h3 class="text-2xl font-bold mb-2">backlog</h3>
+                <p class="text-sm text-muted-foreground">New features</p>
+              </div>
 
-      <h3>Done</h3>
-      <p>Completed features are archived in <code>done</code>. They can serve as dependencies for other features and remain as documentation of delivered functionality.</p>
-    </section>
+              <div class="text-3xl text-primary">→</div>
 
-    <section>
-      <h2>Validation Rules</h2>
-      <div class="grid two">
-        <article>
-          <h3>Schema Validation</h3>
-          <p>All features must conform to the JSON schema in <code>.virtualboard/schema.json</code>. The validator checks:</p>
-          <ul>
-            <li>Required frontmatter fields</li>
-            <li>Valid status values</li>
-            <li>Proper date formats</li>
-            <li>Allowed priority and complexity levels</li>
-          </ul>
-        </article>
-        <article>
-          <h3>Workflow Rules</h3>
-          <p>Features must be in the correct directory for their status:</p>
-          <ul>
-            <li>File path must match status value</li>
-            <li>Dependencies must exist and be valid</li>
-            <li>No dependency cycles allowed</li>
-            <li>Filename format: <code>{id}-{slug}.md</code></li>
-          </ul>
-        </article>
+              <div class="flex-1">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold text-xl mb-3">
+                  ⚙️
+                </div>
+                <h3 class="text-2xl font-bold mb-2">in-progress</h3>
+                <p class="text-sm text-muted-foreground">Active work</p>
+              </div>
+
+              <div class="text-3xl text-primary">→</div>
+
+              <div class="flex-1">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-accent/10 border border-accent/20 text-accent font-bold text-xl mb-3">
+                  ✓
+                </div>
+                <h3 class="text-2xl font-bold mb-2">done</h3>
+                <p class="text-sm text-muted-foreground">Completed</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="max-w-3xl mx-auto text-center">
+          <p class="text-muted-foreground leading-relaxed">
+            Features move through three distinct states, each with its own directory under <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">.virtualboard/features/</code>. The CLI enforces workflow transitions and validates that dependencies are satisfied before moving features to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">in-progress</code>.
+          </p>
+        </div>
       </div>
     </section>
 
-    <section>
-      <h2>Collaborative Workflows</h2>
-      <h3>Locking Features</h3>
-      <p>Use <code>vb lock</code> to coordinate edits across team members:</p>
-      <pre><code>vb lock acquire FEAT-001
+    <!-- Getting Started Section -->
+    <section class="py-20 lg:py-28 bg-gradient-to-b from-transparent via-muted/20 to-transparent">
+      <div class="container max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-5xl font-bold mb-6 tracking-tight">Getting Started</h2>
+          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Four simple steps to manage your feature specifications
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto">
+          <!-- Step 1: Initialize -->
+          <div class="bg-card/30 p-8 rounded-xl border border-border/50">
+            <div class="flex items-center gap-4 mb-6">
+              <div class="bg-primary/10 text-primary w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl flex-shrink-0 border border-primary/20">
+                1
+              </div>
+              <h3 class="text-2xl font-bold">Initialize Workspace</h3>
+            </div>
+            <p class="text-muted-foreground mb-4">
+              Start by creating a <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">.virtualboard/</code> directory structure in your repository:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4 mb-4">
+              <code class="text-sm font-mono text-muted-foreground">vb init</code>
+            </div>
+            <p class="text-muted-foreground text-sm mb-4">
+              This downloads the template archive and sets up the workspace with schema, directories, and example features.
+            </p>
+            <p class="text-muted-foreground text-sm mb-2">
+              To update an existing workspace to the latest template version:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
+              <code class="text-sm font-mono text-muted-foreground">vb init --update</code>
+            </div>
+          </div>
+
+          <!-- Step 2: Create Features -->
+          <div class="bg-card/30 p-8 rounded-xl border border-border/50">
+            <div class="flex items-center gap-4 mb-6">
+              <div class="bg-primary/10 text-primary w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl flex-shrink-0 border border-primary/20">
+                2
+              </div>
+              <h3 class="text-2xl font-bold">Create Features</h3>
+            </div>
+            <p class="text-muted-foreground mb-4">
+              Scaffold new feature specs with consistent structure:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4 mb-4">
+              <code class="text-sm font-mono text-muted-foreground">vb new "User Authentication" security auth</code>
+            </div>
+            <p class="text-muted-foreground text-sm">
+              Each feature gets a unique ID, YAML frontmatter, and standard sections for documentation.
+            </p>
+          </div>
+
+          <!-- Step 3: Validate & Move -->
+          <div class="bg-card/30 p-8 rounded-xl border border-border/50">
+            <div class="flex items-center gap-4 mb-6">
+              <div class="bg-primary/10 text-primary w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl flex-shrink-0 border border-primary/20">
+                3
+              </div>
+              <h3 class="text-2xl font-bold">Validate & Move</h3>
+            </div>
+            <p class="text-muted-foreground mb-4">
+              Check for issues and move features through the workflow:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4 mb-4">
+              <pre class="text-sm font-mono text-muted-foreground">vb validate all
+vb move FEAT-001 in-progress --owner=alice</pre>
+            </div>
+            <p class="text-muted-foreground text-sm">
+              Validation ensures schema compliance, dependency resolution, and workflow consistency.
+            </p>
+          </div>
+
+          <!-- Step 4: Generate Indexes -->
+          <div class="bg-card/30 p-8 rounded-xl border border-border/50">
+            <div class="flex items-center gap-4 mb-6">
+              <div class="bg-primary/10 text-primary w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl flex-shrink-0 border border-primary/20">
+                4
+              </div>
+              <h3 class="text-2xl font-bold">Generate Indexes</h3>
+            </div>
+            <p class="text-muted-foreground mb-4">
+              Create stakeholder-friendly views of all features:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4 mb-4">
+              <code class="text-sm font-mono text-muted-foreground">vb index</code>
+            </div>
+            <p class="text-muted-foreground text-sm">
+              Outputs Markdown, JSON, and HTML indexes sorted by status and priority.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature Lifecycle Section -->
+    <section class="py-20 lg:py-28">
+      <div class="container max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-5xl font-bold mb-6 tracking-tight">Feature Lifecycle</h2>
+          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Understanding each stage of the feature workflow
+          </p>
+        </div>
+
+        <div class="max-w-4xl mx-auto space-y-8">
+          <!-- Backlog -->
+          <div class="bg-card/30 rounded-xl border border-border/50 p-8">
+            <h3 class="text-2xl font-bold mb-4">Backlog</h3>
+            <p class="text-muted-foreground mb-4">
+              New features start in the backlog directory. They include:
+            </p>
+            <ul class="space-y-2 text-muted-foreground">
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Unique feature ID (FEAT-XXX)</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Title, labels, and metadata</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Overview and acceptance criteria sections</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Status set to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">backlog</code></span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- In Progress -->
+          <div class="bg-card/30 rounded-xl border border-border/50 p-8">
+            <h3 class="text-2xl font-bold mb-4">In Progress</h3>
+            <p class="text-muted-foreground mb-4">
+              When work begins, features move to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">in-progress</code>. Requirements:
+            </p>
+            <ul class="space-y-2 text-muted-foreground">
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>All dependencies must be in <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">done</code> status</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Owner must be assigned (can be set during move)</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>No circular dependency chains</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Done -->
+          <div class="bg-card/30 rounded-xl border border-border/50 p-8">
+            <h3 class="text-2xl font-bold mb-4">Done</h3>
+            <p class="text-muted-foreground">
+              Completed features are archived in <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">done</code>. They can serve as dependencies for other features and remain as documentation of delivered functionality.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Validation Rules Section -->
+    <section class="py-20 lg:py-28 bg-gradient-to-b from-transparent via-muted/20 to-transparent">
+      <div class="container max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-5xl font-bold mb-6 tracking-tight">Validation Rules</h2>
+          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Ensuring quality and consistency across all features
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto">
+          <!-- Schema Validation -->
+          <div class="bg-card/30 p-8 rounded-xl border border-border/50">
+            <div class="text-4xl mb-4">📋</div>
+            <h3 class="text-2xl font-bold mb-4">Schema Validation</h3>
+            <p class="text-muted-foreground mb-4">
+              All features must conform to the JSON schema in <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">.virtualboard/schema.json</code>. The validator checks:
+            </p>
+            <ul class="space-y-2 text-muted-foreground">
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Required frontmatter fields</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Valid status values</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Proper date formats</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Allowed priority and complexity levels</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Workflow Rules -->
+          <div class="bg-card/30 p-8 rounded-xl border border-border/50">
+            <div class="text-4xl mb-4">🔄</div>
+            <h3 class="text-2xl font-bold mb-4">Workflow Rules</h3>
+            <p class="text-muted-foreground mb-4">
+              Features must be in the correct directory for their status:
+            </p>
+            <ul class="space-y-2 text-muted-foreground">
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>File path must match status value</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Dependencies must exist and be valid</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>No dependency cycles allowed</span>
+              </li>
+              <li class="flex items-start">
+                <span class="text-primary mr-2">•</span>
+                <span>Filename format: <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-xs font-mono">{id}-{slug}.md</code></span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Collaborative Workflows Section -->
+    <section class="py-20 lg:py-28">
+      <div class="container max-w-7xl mx-auto px-6">
+        <div class="text-center mb-16">
+          <h2 class="text-5xl font-bold mb-6 tracking-tight">Collaborative Workflows</h2>
+          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Tools for team coordination and automation
+          </p>
+        </div>
+
+        <div class="max-w-4xl mx-auto space-y-8">
+          <!-- Locking Features -->
+          <div class="bg-card/30 rounded-xl border border-border/50 p-8">
+            <h3 class="text-2xl font-bold mb-4">Locking Features</h3>
+            <p class="text-muted-foreground mb-4">
+              Use <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb lock</code> to coordinate edits across team members:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4 mb-4">
+              <pre class="text-sm font-mono text-muted-foreground">vb lock acquire FEAT-001
 # Edit the feature...
-vb lock release FEAT-001</code></pre>
-      <p>Locks are TTL-based and can be checked or force-overridden when needed.</p>
+vb lock release FEAT-001</pre>
+            </div>
+            <p class="text-muted-foreground text-sm">
+              Locks are TTL-based and can be checked or force-overridden when needed.
+            </p>
+          </div>
 
-      <h3>CI/CD Integration</h3>
-      <p>The CLI's JSON output mode makes it perfect for automation:</p>
-      <pre><code>vb validate all --json | jq '.errors'
-vb index --json</code></pre>
-      <p>Combine with <code>--dry-run</code> to preview changes before applying them.</p>
+          <!-- CI/CD Integration -->
+          <div class="bg-card/30 rounded-xl border border-border/50 p-8">
+            <h3 class="text-2xl font-bold mb-4">CI/CD Integration</h3>
+            <p class="text-muted-foreground mb-4">
+              The CLI's JSON output mode makes it perfect for automation:
+            </p>
+            <div class="bg-muted/50 border border-border/30 rounded-lg p-4 mb-4">
+              <pre class="text-sm font-mono text-muted-foreground">vb validate all --json | jq '.errors'
+vb index --json</pre>
+            </div>
+            <p class="text-muted-foreground text-sm">
+              Combine with <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-xs font-mono">--dry-run</code> to preview changes before applying them.
+            </p>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 
-  <footer>
-    <p>VirtualBoard CLI · Released under the MIT License</p>
+  <!-- Footer -->
+  <footer class="py-16 text-center border-t border-border/50">
+    <div class="container max-w-7xl mx-auto px-6">
+      <p class="text-muted-foreground">
+        VirtualBoard CLI · Released under the <a href="https://github.com/virtualboard/vb-cli/blob/main/LICENSE" class="text-primary hover:text-primary/80 transition-colors" target="_blank" rel="noreferrer">MIT License</a>
+      </p>
+    </div>
   </footer>
+
 </body>
 </html>
