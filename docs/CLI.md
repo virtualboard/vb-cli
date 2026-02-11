@@ -70,6 +70,58 @@ vb init --update --dry-run
 vb init --update --json
 ```
 
+### `vb install <ide>`
+Install VirtualBoard integration for a supported IDE.
+
+**Supported IDEs:**
+- `claude` – Claude Code (requires the `claude` CLI to be installed)
+- `cursor` – Cursor IDE (copies `.cursor/rules/virtualboard.mdc` to your project)
+- `opencode` – OpenCode (copies agents to `.opencode/agent`)
+
+**Flags:**
+- `--force` – Replace existing files without confirmation (for cursor)
+
+**Installation Details:**
+
+*Claude Code:*
+- Requires the `claude` CLI to be installed and in PATH
+- Runs `claude plugin marketplace add virtualboard/template-base`
+- Runs `claude plugin install virtualboard`
+- Provides access to 10+ specialized agent roles and 30+ commands
+
+*Cursor:*
+- Downloads `virtualboard.mdc` from the template repository
+- Creates `.cursor/rules/` directory if needed
+- If the file already exists and differs, prompts for confirmation (unless `--force`)
+- If the file is identical, reports "already up to date"
+
+*OpenCode:*
+- Requires `.virtualboard/agents` to exist (run `vb init` first)
+- Creates `.opencode/agent/` directory
+- Recursively copies all agent definitions from `.virtualboard/agents`
+
+**Examples:**
+
+```bash
+# Install Claude Code plugin
+vb install claude
+
+# Install Cursor rules
+vb install cursor
+
+# Force replace existing Cursor rules
+vb install cursor --force
+
+# Install OpenCode agents
+vb install opencode
+
+# Preview installation without changes
+vb install cursor --dry-run
+
+# JSON output for automation
+vb install claude --json
+```
+
 ### `vb new <title> [labels...]`
 Create a new feature spec in the backlog using the canonical template.
 
@@ -219,7 +271,22 @@ Check for a newer version of vb on GitHub releases and upgrade the binary if ava
 
 ## Exit Codes
 
-`vb` surfaces rich exit codes to indicate validation errors, not found resources, lock conflicts, and more. Refer to `cmd/exit.go` for the complete list.
+`vb` surfaces rich exit codes to indicate validation errors, not found resources, lock conflicts, and more.
+
+| Code | Name | Description |
+|------|------|-------------|
+| 0 | Success | Command completed successfully |
+| 1 | Validation | Validation error (schema, workflow rules) |
+| 2 | NotFound | Resource not found |
+| 3 | InvalidTransition | Invalid workflow transition |
+| 4 | Dependency | Dependency error (cycles, missing) |
+| 5 | LockConflict | Lock conflict |
+| 6 | Filesystem | Filesystem error |
+| 7 | Schema | Schema error |
+| 8 | ExternalCommand | External command failed (e.g., `claude` CLI) |
+| 10 | Unknown | Unknown error |
+
+Refer to `cmd/exit.go` for implementation details.
 
 ## Common Issues and Troubleshooting
 

@@ -133,13 +133,15 @@ func (u *Upgrader) DownloadBinary(release *github.RepositoryRelease) (string, er
 	// Copy the binary content to the temporary file
 	_, err = io.Copy(tmpFile, resp.Body)
 	if err != nil {
+		// #nosec G703 - tmpFile.Name() is safe, comes from os.CreateTemp
 		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("failed to write binary to temporary file: %w", err)
 	}
 
 	// Make the temporary file executable
-	// #nosec G302 -- executable binary requires 0755 permissions
+	// #nosec G302 G703 - executable binary requires 0755 permissions, tmpFile.Name() is safe from os.CreateTemp
 	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		// #nosec G703 - tmpFile.Name() is safe, comes from os.CreateTemp
 		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("failed to make binary executable: %w", err)
 	}

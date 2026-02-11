@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.7.0] - 2025-02-11
+
+### Added
+
+- New `vb install <ide>` command to install VirtualBoard integration for supported IDEs
+- Claude Code integration: runs `claude plugin marketplace add` and `claude plugin install` commands
+- Cursor integration: downloads and installs `.cursor/rules/virtualboard.mdc` from template repository
+- OpenCode integration: copies agents from `.virtualboard/agents` to `.opencode/agent`
+- `--force` flag for Cursor installation to replace existing files without confirmation
+- New `ExitCodeExternalCommand` (8) for external command failures
+- IDE Integrations and Self-Update feature cards added to docs/index.html
+
+### Changed
+
+- Updated documentation (README.md, docs/CLI.md, docs/index.html) with install command reference
+
 ## [v0.6.1] - 2025-12-26
 
 ### Fixed
