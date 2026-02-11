@@ -166,7 +166,7 @@ func OpenInEditor(filePath string) error {
 		return fmt.Errorf("no editor found. Set $EDITOR or $VISUAL environment variable")
 	}
 
-	// #nosec G204 - editor command comes from user's environment variable ($EDITOR/$VISUAL) which is intentional
+	// #nosec G204 G702 - editor command comes from user's environment variable ($EDITOR/$VISUAL) which is intentional
 	cmd := exec.Command(editor, filePath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -199,7 +199,7 @@ func DisplayContent(content string) error {
 		return nil
 	}
 
-	// #nosec G204 - pager command comes from user's environment variable ($PAGER) which is intentional
+	// #nosec G204 G702 - pager command comes from user's environment variable ($PAGER) which is intentional
 	cmd := exec.Command(pager, "-R") // -R for color support
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Stdout = os.Stderr
@@ -211,6 +211,7 @@ func DisplayContent(content string) error {
 // getTerminalHeight returns the terminal height in lines, or 0 if unknown
 func getTerminalHeight() int {
 	// Try to get terminal size from stderr (where prompts go)
+	// #nosec G115 - file descriptor conversion is safe on all Go-supported platforms
 	if fd := int(os.Stderr.Fd()); term.IsTerminal(fd) {
 		_, height, err := term.GetSize(fd)
 		if err == nil {
@@ -265,6 +266,7 @@ const (
 
 // isTerminal returns true if stderr is a terminal (supports colors)
 func isTerminal() bool {
+	// #nosec G115 - file descriptor conversion is safe on all Go-supported platforms
 	return term.IsTerminal(int(os.Stderr.Fd()))
 }
 
