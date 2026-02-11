@@ -2,7 +2,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](docs/DEVELOPMENT.md#development)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-blue.svg)](docs/DEVELOPMENT.md#development)
-[![Release](https://img.shields.io/badge/version-v0.1.2-informational.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/version-v0.7.0-informational.svg)](CHANGELOG.md)
 [![Semantic Versioning](https://img.shields.io/badge/semver-2.0.0-blue.svg)](https://semver.org/spec/v2.0.0.html)
 
 VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, and shipping feature specifications that live under `.virtualboard/`. It keeps teams in sync by scaffolding new specs, guarding workflow transitions, surfacing validation issues early, and generating stakeholder-friendly indexes.
@@ -10,6 +10,7 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 ## Key Capabilities
 
 - Initialise a repository with `vb init`, which downloads and expands the VirtualBoard template archive into `.virtualboard/`. Keep your workspace up-to-date with `vb init --update` for interactive template updates.
+- Install IDE integrations with `vb install <ide>` for Claude Code, Cursor, and OpenCode.
 - Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`).
 - Validate both feature specs and system specs with `vb validate`, supporting schema validation for features (workflow, dependencies) and specs (architectural blueprints). Use `--only-features` or `--only-specs` to validate specific types.
 - Regenerate indices in Markdown/JSON/HTML with `vb index`.
@@ -74,6 +75,9 @@ From your repository root:
 ```bash
 vb init                      # bootstrap .virtualboard/
 vb init --update             # update template to latest version
+vb install claude            # install Claude Code plugin
+vb install cursor            # install Cursor IDE rules
+vb install opencode          # install OpenCode agents
 vb new "Awesome Feature" label1 label2
 vb validate                  # validate both features and system specs
 vb validate --only-features  # validate only feature specs

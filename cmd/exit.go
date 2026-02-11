@@ -12,6 +12,7 @@ const (
 	ExitCodeLockConflict      = 5
 	ExitCodeFilesystem        = 6
 	ExitCodeSchema            = 7
+	ExitCodeExternalCommand   = 8
 	ExitCodeUnknown           = 10
 )
 
