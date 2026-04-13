@@ -159,7 +159,7 @@ jobs:
         run: make scan
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: success()
         with:
           files: ./coverage.out
@@ -239,7 +239,7 @@ jobs:
           go build -ldflags="-s -w -X main.version=${{ needs.determine-release.outputs.version }}" -o dist/${{ env.BINARY_NAME }}-${{ matrix.platform }} .
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.platform }}
           path: dist/${{ env.BINARY_NAME }}-${{ matrix.platform }}
@@ -259,7 +259,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
 
       - name: Prepare release assets
         run: |
@@ -450,7 +450,7 @@ jobs:
 
       - name: Upload Release Assets as Artifacts
         if: steps.create-release.outcome == 'failure'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-${{ needs.determine-release.outputs.tag-name }}
           path: release-assets/

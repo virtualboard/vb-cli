@@ -1,7 +1,10 @@
 package upgrade
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +15,14 @@ import (
 
 	"github.com/google/go-github/v60/github"
 	"github.com/sirupsen/logrus"
+
+	"github.com/virtualboard/vb-cli/internal/version"
 )
+
+// httpGetter abstracts HTTP GET requests for testability.
+type httpGetter interface {
+	Get(url string) (*http.Response, error)
+}
 
 const (
 	// Repository owner and name for the vb-cli project
@@ -22,15 +32,17 @@ const (
 
 // Upgrader handles the upgrade process for the vb binary
 type Upgrader struct {
-	client *github.Client
-	logger *logrus.Logger
+	client     *github.Client
+	logger     *logrus.Logger
+	httpClient httpGetter
 }
 
 // NewUpgrader creates a new upgrader instance
 func NewUpgrader(logger *logrus.Logger) *Upgrader {
 	return &Upgrader{
-		client: github.NewClient(nil),
-		logger: logger,
+		client:     github.NewClient(nil),
+		logger:     logger,
+		httpClient: http.DefaultClient,
 	}
 }
 
@@ -43,14 +55,15 @@ func (u *Upgrader) CheckForUpdate(currentVersion string) (*github.RepositoryRele
 		return nil, false, fmt.Errorf("failed to get latest release: %w", err)
 	}
 
-	// Remove 'v' prefix for comparison
-	latestVersion := strings.TrimPrefix(release.GetTagName(), "v")
-	currentVersion = strings.TrimPrefix(currentVersion, "v")
+	latestVersion := release.GetTagName()
 
 	u.logger.Debugf("Current version: %s, Latest version: %s", currentVersion, latestVersion)
 
-	// Simple string comparison - in a real implementation, you'd want semantic version comparison
-	if latestVersion > currentVersion {
+	newer, err := version.IsNewer(latestVersion, currentVersion)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to compare versions: %w", err)
+	}
+	if newer {
 		return release, true, nil
 	}
 
@@ -113,7 +126,8 @@ func (u *Upgrader) DownloadBinary(release *github.RepositoryRelease) (string, er
 	u.logger.Debugf("Found binary asset: %s", asset.GetName())
 
 	// Download the binary
-	resp, err := http.Get(asset.GetBrowserDownloadURL())
+	// #nosec G107 -- URL comes from trusted GitHub API release asset
+	resp, err := u.httpClient.Get(asset.GetBrowserDownloadURL())
 	if err != nil {
 		return "", fmt.Errorf("failed to download binary: %w", err)
 	}
@@ -137,6 +151,32 @@ func (u *Upgrader) DownloadBinary(release *github.RepositoryRelease) (string, er
 		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("failed to write binary to temporary file: %w", err)
 	}
+
+	// Verify checksum against release checksums.txt
+	u.logger.Debug("Verifying binary checksum...")
+	checksumData, err := u.downloadChecksumsFile(release)
+	if err != nil {
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to download checksums: %w", err)
+	}
+
+	checksums, err := parseChecksums(checksumData)
+	if err != nil {
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to parse checksums: %w", err)
+	}
+
+	expectedHash, ok := checksums[binaryName]
+	if !ok {
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("no checksum found for %s in checksums.txt", binaryName)
+	}
+
+	if err := verifyChecksum(tmpFile.Name(), expectedHash); err != nil {
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("checksum verification failed: %w", err)
+	}
+	u.logger.Debug("Checksum verified successfully")
 
 	// Make the temporary file executable
 	// #nosec G302 G703 - executable binary requires 0755 permissions, tmpFile.Name() is safe from os.CreateTemp
@@ -195,6 +235,85 @@ func (u *Upgrader) ReplaceBinary(newBinaryPath string) error {
 	_ = os.Remove(newBinaryPath)
 
 	u.logger.Debug("Binary replacement completed successfully")
+	return nil
+}
+
+// downloadChecksumsFile downloads the checksums.txt file from a release.
+func (u *Upgrader) downloadChecksumsFile(release *github.RepositoryRelease) ([]byte, error) {
+	var checksumAsset *github.ReleaseAsset
+	for _, a := range release.Assets {
+		if a.GetName() == "checksums.txt" {
+			checksumAsset = a
+			break
+		}
+	}
+	if checksumAsset == nil {
+		return nil, fmt.Errorf("checksums.txt not found in release %s", release.GetTagName())
+	}
+
+	// #nosec G107 -- URL comes from trusted GitHub API release asset
+	resp, err := u.httpClient.Get(checksumAsset.GetBrowserDownloadURL())
+	if err != nil {
+		return nil, fmt.Errorf("failed to download checksums.txt: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to download checksums.txt: HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read checksums.txt: %w", err)
+	}
+	return data, nil
+}
+
+// parseChecksums parses sha256sum output into a map of filename -> hash.
+// Expected format: "<hash>  ./<filename>" (two spaces, with optional ./ prefix).
+func parseChecksums(data []byte) (map[string]string, error) {
+	checksums := make(map[string]string)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// sha256sum format: "<hash>  <filename>" (two spaces)
+		parts := strings.SplitN(line, "  ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		hash := parts[0]
+		name := strings.TrimPrefix(parts[1], "./")
+		checksums[name] = hash
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(checksums) == 0 {
+		return nil, fmt.Errorf("no valid checksum entries found")
+	}
+	return checksums, nil
+}
+
+// verifyChecksum computes SHA-256 of a file and compares to the expected hash.
+func verifyChecksum(filePath, expectedHash string) error {
+	// #nosec G304 -- filePath comes from os.CreateTemp in DownloadBinary
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	actual := fmt.Sprintf("%x", h.Sum(nil))
+	if actual != expectedHash {
+		return fmt.Errorf("expected %s, got %s", expectedHash, actual)
+	}
 	return nil
 }
 

@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.8.0] - 2026-04-12
+
+### Added
+
+- Proper semantic version comparison for `vb upgrade` replacing broken string-based comparison (v1.10.0 now correctly > v1.9.0)
+- SHA-256 checksum verification on `vb upgrade` binary downloads using release checksums.txt
+- Atomic lock file creation with `O_CREATE|O_EXCL` to prevent TOCTOU races in `vb lock`
+- Operational locking in `vb new` and `vb move` to prevent ID-allocation and concurrent-move races
+- Append-only JSONL audit log with SHA-256 hash chain for tamper evidence at `.virtualboard/audit.jsonl`
+- `internal/audit` package for hash-chained audit logging
+- `internal/version` Parse, Compare, and IsNewer functions for semver comparison
+
+### Security
+
+- `vb upgrade` now verifies downloaded binary integrity against checksums.txt before replacing the current binary
+- Lock files tightened from 0644 to 0600 permissions
+- HTTP client abstracted via `httpGetter` interface for testability and to resolve gosec G107
+
+### Fixed
+
+- `vb upgrade` version comparison bug where v1.10.0 was considered older than v1.9.0 due to string comparison
+- TOCTOU race in lock acquisition where two concurrent `vb lock` calls could both succeed
+- ID-allocation race in `vb new` where concurrent calls could generate duplicate feature IDs
+- Concurrent move race in `vb move` where simultaneous moves of the same feature could corrupt state
+
 ## [v0.7.0] - 2025-02-11
 
 ### Added

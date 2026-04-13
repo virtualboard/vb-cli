@@ -14,7 +14,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/virtualboard/vb-cli/internal/audit"
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/lock"
 	"github.com/virtualboard/vb-cli/internal/util"
 )
 
@@ -22,16 +24,53 @@ var idPattern = regexp.MustCompile(`FTR-(\d{4})`)
 
 // Manager encapsulates feature file operations.
 type Manager struct {
-	opts *config.Options
-	log  *logrus.Entry
+	opts     *config.Options
+	log      *logrus.Entry
+	lockMgr  *lock.Manager
+	auditLog *audit.Logger
 }
 
 // NewManager constructs a manager with shared configuration.
 func NewManager(opts *config.Options) *Manager {
+	auditPath := filepath.Join(opts.RootDir, "audit.jsonl")
+	auditLog, _ := audit.NewLogger(auditPath) // best-effort; nil on error
 	return &Manager{
-		opts: opts,
-		log:  opts.Logger().WithField("component", "feature"),
+		opts:     opts,
+		log:      opts.Logger().WithField("component", "feature"),
+		lockMgr:  lock.NewManager(opts),
+		auditLog: auditLog,
 	}
+}
+
+// auditEvent records a mutating operation to the audit log. Best-effort only.
+func (m *Manager) auditEvent(action, featureID, details string) {
+	if m.auditLog != nil {
+		_ = m.auditLog.Log(action, currentUser(), featureID, details)
+	}
+}
+
+// currentUser returns the OS username or "unknown" as fallback.
+func currentUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	return "unknown"
+}
+
+// withLock acquires a short-lived operational lock, runs fn, then releases.
+// The lock uses a 1-minute TTL for automatic expiry if the process crashes.
+func (m *Manager) withLock(lockID string, fn func() error) error {
+	if m.lockMgr == nil || m.opts.DryRun {
+		return fn()
+	}
+	_, err := m.lockMgr.Acquire(lockID, "vb-cli-op", 1, false)
+	if err != nil {
+		return fmt.Errorf("failed to acquire operational lock %s: %w", lockID, err)
+	}
+	defer func() {
+		_ = m.lockMgr.Release(lockID)
+	}()
+	return fn()
 }
 
 // FeaturesDir returns the path to the features directory.
@@ -167,50 +206,59 @@ func (m *Manager) Save(feat *Feature) error {
 }
 
 // CreateFeature creates a new feature using the template.
+// Uses an operational lock to prevent ID-allocation races from concurrent calls.
 func (m *Manager) CreateFeature(title string, labels []string) (*Feature, error) {
-	templateData, err := os.ReadFile(m.TemplatePath())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read template: %w", err)
+	var feat *Feature
+	err := m.withLock("op-create-feature", func() error {
+		templateData, readErr := os.ReadFile(m.TemplatePath())
+		if readErr != nil {
+			return fmt.Errorf("failed to read template: %w", readErr)
+		}
+
+		nextID, idErr := m.NextID()
+		if idErr != nil {
+			return fmt.Errorf("failed to compute next feature ID: %w", idErr)
+		}
+
+		slug := util.Slugify(title)
+		filename := fmt.Sprintf("%s-%s.md", nextID, slug)
+		path := filepath.Join(m.FeaturesDir(), "backlog", filename)
+
+		today := time.Now().Format("2006-01-02")
+
+		parsed, parseErr := Parse(path, templateData)
+		if parseErr != nil {
+			return parseErr
+		}
+
+		parsed.Path = path
+		parsed.FrontMatter.ID = nextID
+		parsed.FrontMatter.Title = title
+		parsed.FrontMatter.Status = "backlog"
+		parsed.FrontMatter.Owner = "unassigned"
+		parsed.FrontMatter.Created = today
+		parsed.FrontMatter.Updated = today
+		parsed.FrontMatter.Labels = normalizeList(labels)
+		parsed.Body = strings.ReplaceAll(parsed.Body, "<Feature Title>", title)
+
+		if saveErr := m.Save(parsed); saveErr != nil {
+			return saveErr
+		}
+
+		m.log.WithFields(logrus.Fields{
+			"action": "new",
+			"id":     nextID,
+			"path":   path,
+			"labels": parsed.LabelsAsYAML(),
+		}).Info("Feature created")
+
+		feat = parsed
+		return nil
+	})
+	if err == nil && feat != nil {
+		m.auditEvent("create", feat.FrontMatter.ID, fmt.Sprintf("title=%s", feat.FrontMatter.Title))
 	}
-
-	nextID, err := m.NextID()
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute next feature ID: %w", err)
-	}
-
-	slug := util.Slugify(title)
-	filename := fmt.Sprintf("%s-%s.md", nextID, slug)
-	path := filepath.Join(m.FeaturesDir(), "backlog", filename)
-
-	today := time.Now().Format("2006-01-02")
-
-	feat, err := Parse(path, templateData)
-	if err != nil {
-		return nil, err
-	}
-
-	feat.Path = path
-	feat.FrontMatter.ID = nextID
-	feat.FrontMatter.Title = title
-	feat.FrontMatter.Status = "backlog"
-	feat.FrontMatter.Owner = "unassigned"
-	feat.FrontMatter.Created = today
-	feat.FrontMatter.Updated = today
-	feat.FrontMatter.Labels = normalizeList(labels)
-	feat.Body = strings.ReplaceAll(feat.Body, "<Feature Title>", title)
-
-	if err := m.Save(feat); err != nil {
-		return nil, err
-	}
-
-	m.log.WithFields(logrus.Fields{
-		"action": "new",
-		"id":     nextID,
-		"path":   path,
-		"labels": feat.LabelsAsYAML(),
-	}).Info("Feature created")
-
-	return feat, nil
+	return feat, err
 }
 
 // UpdateFeature persists changes to an existing feature.
@@ -220,76 +268,83 @@ func (m *Manager) UpdateFeature(feat *Feature) error {
 }
 
 // MoveFeature updates status and moves file accordingly.
+// Uses a per-feature operational lock to prevent concurrent move races.
 func (m *Manager) MoveFeature(id, newStatus, owner string) (*Feature, string, error) {
-	feat, err := m.LoadByID(id)
+	var feat *Feature
+	var summary string
+	err := m.withLock(fmt.Sprintf("op-move-%s", id), func() error {
+		var loadErr error
+		feat, loadErr = m.LoadByID(id)
+		if loadErr != nil {
+			return loadErr
+		}
+
+		currentStatus := strings.ToLower(feat.FrontMatter.Status)
+		if transErr := ValidateTransition(currentStatus, newStatus); transErr != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidTransition, transErr)
+		}
+
+		if depErr := m.verifyDependenciesForMove(feat, newStatus); depErr != nil {
+			return depErr
+		}
+
+		newStatus = strings.ToLower(newStatus)
+		feat.FrontMatter.Status = newStatus
+		if owner != "" {
+			feat.FrontMatter.Owner = owner
+		} else if feat.FrontMatter.Owner == "" {
+			feat.FrontMatter.Owner = "unassigned"
+		}
+		feat.UpdateTimestamp()
+
+		newDir := filepath.Join(m.opts.RootDir, DirectoryForStatus(newStatus))
+		if newDir == "" {
+			return fmt.Errorf("unknown status directory for %s", newStatus)
+		}
+
+		oldPath := feat.Path
+		needsMove := !strings.EqualFold(newStatus, currentStatus) || filepath.Dir(feat.Path) != newDir
+
+		if needsMove {
+			if !m.opts.DryRun {
+				if mkErr := os.MkdirAll(newDir, 0o750); mkErr != nil {
+					return fmt.Errorf("failed to create status directory: %w", mkErr)
+				}
+			}
+			newPath := filepath.Join(newDir, filepath.Base(feat.Path))
+			feat.Path = newPath
+
+			if saveErr := m.Save(feat); saveErr != nil {
+				return fmt.Errorf("failed to write feature to new location: %w", saveErr)
+			}
+
+			if oldPath != newPath && !m.opts.DryRun {
+				if rmErr := os.Remove(oldPath); rmErr != nil {
+					m.log.WithField("path", oldPath).Warn("Failed to remove old feature file")
+				}
+			}
+		} else {
+			if saveErr := m.Save(feat); saveErr != nil {
+				return saveErr
+			}
+		}
+
+		summary = fmt.Sprintf("Moved %s to %s", feat.FrontMatter.ID, newStatus)
+		m.log.WithFields(logrus.Fields{
+			"action":   "move",
+			"id":       feat.FrontMatter.ID,
+			"from":     currentStatus,
+			"to":       newStatus,
+			"owner":    feat.FrontMatter.Owner,
+			"new_path": feat.Path,
+		}).Info("Feature moved")
+
+		return nil
+	})
 	if err != nil {
 		return nil, "", err
 	}
-
-	currentStatus := strings.ToLower(feat.FrontMatter.Status)
-	if err := ValidateTransition(currentStatus, newStatus); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", ErrInvalidTransition, err)
-	}
-
-	if err := m.verifyDependenciesForMove(feat, newStatus); err != nil {
-		return nil, "", err
-	}
-
-	newStatus = strings.ToLower(newStatus)
-	feat.FrontMatter.Status = newStatus
-	if owner != "" {
-		feat.FrontMatter.Owner = owner
-	} else if feat.FrontMatter.Owner == "" {
-		feat.FrontMatter.Owner = "unassigned"
-	}
-	feat.UpdateTimestamp()
-
-	newDir := filepath.Join(m.opts.RootDir, DirectoryForStatus(newStatus))
-	if newDir == "" {
-		return nil, "", fmt.Errorf("unknown status directory for %s", newStatus)
-	}
-
-	oldPath := feat.Path
-	needsMove := !strings.EqualFold(newStatus, currentStatus) || filepath.Dir(feat.Path) != newDir
-
-	if needsMove {
-		if !m.opts.DryRun {
-			if err := os.MkdirAll(newDir, 0o750); err != nil {
-				return nil, "", fmt.Errorf("failed to create status directory: %w", err)
-			}
-		}
-		newPath := filepath.Join(newDir, filepath.Base(feat.Path))
-		feat.Path = newPath
-
-		// Write the updated content to the new location first (atomically)
-		if err := m.Save(feat); err != nil {
-			return nil, "", fmt.Errorf("failed to write feature to new location: %w", err)
-		}
-
-		// Only remove the old file after the new one is successfully written
-		if oldPath != newPath && !m.opts.DryRun {
-			if err := os.Remove(oldPath); err != nil {
-				// Log but don't fail - the new file is already written
-				m.log.WithField("path", oldPath).Warn("Failed to remove old feature file")
-			}
-		}
-	} else {
-		// Status/owner changed but no directory move needed
-		if err := m.Save(feat); err != nil {
-			return nil, "", err
-		}
-	}
-
-	summary := fmt.Sprintf("Moved %s to %s", feat.FrontMatter.ID, newStatus)
-	m.log.WithFields(logrus.Fields{
-		"action":   "move",
-		"id":       feat.FrontMatter.ID,
-		"from":     currentStatus,
-		"to":       newStatus,
-		"owner":    feat.FrontMatter.Owner,
-		"new_path": feat.Path,
-	}).Info("Feature moved")
-
+	m.auditEvent("move", feat.FrontMatter.ID, fmt.Sprintf("status=%s", feat.FrontMatter.Status))
 	return feat, summary, nil
 }
 
@@ -382,6 +437,7 @@ func (m *Manager) DeleteFeature(id string) (string, error) {
 		"action": "delete",
 		"path":   path,
 	}).Info("Feature deleted")
+	m.auditEvent("delete", id, fmt.Sprintf("path=%s", path))
 	return path, nil
 }
 
@@ -411,7 +467,7 @@ func (m *Manager) List() ([]*Feature, error) {
 		if strings.EqualFold(name, "index.md") || strings.EqualFold(name, "readme.md") {
 			return nil
 		}
-		// #nosec G304 -- feature paths are derived from repository structure during discovery
+		// #nosec G304 G122 -- feature paths are derived from repository structure during discovery
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr

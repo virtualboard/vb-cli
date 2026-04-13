@@ -147,7 +147,7 @@ func (m *Manager) List() ([]*Spec, error) {
 			return nil
 		}
 
-		// #nosec G304 -- spec paths are derived from repository structure during discovery
+		// #nosec G304 G122 -- spec paths are derived from repository structure during discovery
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr

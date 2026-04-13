@@ -1,7 +1,10 @@
 package upgrade
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -376,4 +379,279 @@ func TestUpgradeDownloadErrorWithMock(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "failed to download new binary")
+}
+
+func TestParseChecksums(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    map[string]string
+		wantErr bool
+	}{
+		{
+			name:  "standard sha256sum output",
+			input: "abc123  ./vb-macos-arm64\ndef456  ./vb-linux-amd64\n",
+			want: map[string]string{
+				"vb-macos-arm64": "abc123",
+				"vb-linux-amd64": "def456",
+			},
+		},
+		{
+			name:  "without dot-slash prefix",
+			input: "abc123  vb-macos-arm64\n",
+			want: map[string]string{
+				"vb-macos-arm64": "abc123",
+			},
+		},
+		{
+			name:  "with blank lines",
+			input: "abc123  ./vb-macos-arm64\n\ndef456  ./vb-linux-amd64\n\n",
+			want: map[string]string{
+				"vb-macos-arm64": "abc123",
+				"vb-linux-amd64": "def456",
+			},
+		},
+		{
+			name:    "empty input",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "no valid entries",
+			input:   "malformed line\nanother bad line\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseChecksums([]byte(tt.input))
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestVerifyChecksum(t *testing.T) {
+	// Create a temp file with known content
+	tmpDir := t.TempDir()
+	content := []byte("test binary content")
+	filePath := filepath.Join(tmpDir, "test-binary")
+	require.NoError(t, os.WriteFile(filePath, content, 0o600))
+
+	// Compute expected hash
+	h := sha256.New()
+	_, _ = h.Write(content)
+	expectedHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	// Should pass with correct hash
+	assert.NoError(t, verifyChecksum(filePath, expectedHash))
+
+	// Should fail with wrong hash
+	err := verifyChecksum(filePath, "0000000000000000000000000000000000000000000000000000000000000000")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expected")
+
+	// Should fail with non-existent file
+	assert.Error(t, verifyChecksum(filepath.Join(tmpDir, "nonexistent"), expectedHash))
+}
+
+func TestDownloadBinaryWithChecksum(t *testing.T) {
+	binaryContent := []byte("mock binary content for checksum test")
+	h := sha256.New()
+	_, _ = h.Write(binaryContent)
+	binaryHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	upgrader := NewUpgrader(logger)
+	binaryName := upgrader.GetBinaryName()
+
+	checksumContent := fmt.Sprintf("%s  ./%s\n", binaryHash, binaryName)
+
+	// Create a test HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/binary":
+			_, _ = w.Write(binaryContent)
+		case "/checksums.txt":
+			_, _ = w.Write([]byte(checksumContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	// Inject test HTTP client
+	upgrader.httpClient = server.Client()
+
+	release := &github.RepositoryRelease{
+		TagName: github.String("v1.0.0"),
+		Assets: []*github.ReleaseAsset{
+			{
+				Name:               github.String(binaryName),
+				BrowserDownloadURL: github.String(server.URL + "/binary"),
+			},
+			{
+				Name:               github.String("checksums.txt"),
+				BrowserDownloadURL: github.String(server.URL + "/checksums.txt"),
+			},
+		},
+	}
+
+	path, err := upgrader.DownloadBinary(release)
+	require.NoError(t, err)
+	defer os.Remove(path)
+
+	// Verify the file was downloaded
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.True(t, info.Size() > 0)
+}
+
+func TestDownloadBinaryChecksumMismatch(t *testing.T) {
+	binaryContent := []byte("mock binary content")
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	upgrader := NewUpgrader(logger)
+	binaryName := upgrader.GetBinaryName()
+
+	// Provide a wrong checksum
+	checksumContent := fmt.Sprintf("0000000000000000000000000000000000000000000000000000000000000000  ./%s\n", binaryName)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/binary":
+			_, _ = w.Write(binaryContent)
+		case "/checksums.txt":
+			_, _ = w.Write([]byte(checksumContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	upgrader.httpClient = server.Client()
+
+	release := &github.RepositoryRelease{
+		TagName: github.String("v1.0.0"),
+		Assets: []*github.ReleaseAsset{
+			{
+				Name:               github.String(binaryName),
+				BrowserDownloadURL: github.String(server.URL + "/binary"),
+			},
+			{
+				Name:               github.String("checksums.txt"),
+				BrowserDownloadURL: github.String(server.URL + "/checksums.txt"),
+			},
+		},
+	}
+
+	_, err := upgrader.DownloadBinary(release)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "checksum verification failed")
+}
+
+func TestDownloadBinaryMissingChecksums(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	upgrader := NewUpgrader(logger)
+	binaryName := upgrader.GetBinaryName()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("binary data"))
+	}))
+	defer server.Close()
+
+	upgrader.httpClient = server.Client()
+
+	// Release without checksums.txt asset
+	release := &github.RepositoryRelease{
+		TagName: github.String("v1.0.0"),
+		Assets: []*github.ReleaseAsset{
+			{
+				Name:               github.String(binaryName),
+				BrowserDownloadURL: github.String(server.URL + "/binary"),
+			},
+		},
+	}
+
+	_, err := upgrader.DownloadBinary(release)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "checksums.txt not found")
+}
+
+func TestDownloadChecksumsFileHTTPError(t *testing.T) {
+	logger := logrus.New()
+	upgrader := NewUpgrader(logger)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	upgrader.httpClient = server.Client()
+
+	release := &github.RepositoryRelease{
+		TagName: github.String("v1.0.0"),
+		Assets: []*github.ReleaseAsset{
+			{
+				Name:               github.String("checksums.txt"),
+				BrowserDownloadURL: github.String(server.URL + "/checksums.txt"),
+			},
+		},
+	}
+
+	_, err := upgrader.downloadChecksumsFile(release)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTP 500")
+}
+
+func TestDownloadBinaryChecksumMissingEntry(t *testing.T) {
+	binaryContent := []byte("mock binary")
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	upgrader := NewUpgrader(logger)
+	binaryName := upgrader.GetBinaryName()
+
+	// Checksums file exists but doesn't have an entry for our binary
+	checksumContent := "abc123  ./some-other-binary\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/binary":
+			_, _ = w.Write(binaryContent)
+		case "/checksums.txt":
+			_, _ = w.Write([]byte(checksumContent))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	upgrader.httpClient = server.Client()
+
+	release := &github.RepositoryRelease{
+		TagName: github.String("v1.0.0"),
+		Assets: []*github.ReleaseAsset{
+			{
+				Name:               github.String(binaryName),
+				BrowserDownloadURL: github.String(server.URL + "/binary"),
+			},
+			{
+				Name:               github.String("checksums.txt"),
+				BrowserDownloadURL: github.String(server.URL + "/checksums.txt"),
+			},
+		},
+	}
+
+	_, err := upgrader.DownloadBinary(release)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no checksum found")
 }

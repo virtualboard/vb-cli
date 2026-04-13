@@ -274,6 +274,88 @@ func TestRenameToMatchTitle(t *testing.T) {
 	}
 }
 
+func TestCreateFeatureLocking(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, false)
+	mgr := NewManager(opts)
+
+	feat, err := mgr.CreateFeature("Locked Create", nil)
+	if err != nil {
+		t.Fatalf("create feature failed: %v", err)
+	}
+	if feat.FrontMatter.ID != "FTR-0001" {
+		t.Fatalf("expected FTR-0001, got %s", feat.FrontMatter.ID)
+	}
+
+	// Verify operational lock was released
+	lockPath := filepath.Join(opts.RootDir, "locks", "op-create-feature.lock")
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected operational lock to be released after create")
+	}
+}
+
+func TestMoveFeatureLocking(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, false)
+	mgr := NewManager(opts)
+
+	feat, err := mgr.CreateFeature("Locked Move", nil)
+	if err != nil {
+		t.Fatalf("create feature failed: %v", err)
+	}
+
+	_, _, err = mgr.MoveFeature(feat.FrontMatter.ID, "in-progress", "tester")
+	if err != nil {
+		t.Fatalf("move feature failed: %v", err)
+	}
+
+	// Verify operational lock was released
+	lockPath := filepath.Join(opts.RootDir, "locks", fmt.Sprintf("op-move-%s.lock", feat.FrontMatter.ID))
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected operational lock to be released after move")
+	}
+}
+
+func TestWithLockNilLockMgr(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, false)
+	mgr := &Manager{
+		opts:    opts,
+		log:     opts.Logger().WithField("component", "feature"),
+		lockMgr: nil,
+	}
+
+	called := false
+	err := mgr.withLock("test", func() error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withLock with nil lockMgr should not error: %v", err)
+	}
+	if !called {
+		t.Fatal("fn should have been called")
+	}
+}
+
+func TestWithLockDryRun(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, true) // dry-run mode
+	mgr := NewManager(opts)
+
+	called := false
+	err := mgr.withLock("test", func() error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withLock in dry-run should not error: %v", err)
+	}
+	if !called {
+		t.Fatal("fn should have been called in dry-run")
+	}
+}
+
 func TestRenameToMatchTitleDryRun(t *testing.T) {
 	fix := testutil.NewFixture(t)
 	dryOpts := fix.Options(t, false, false, true)
