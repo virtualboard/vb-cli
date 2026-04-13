@@ -128,6 +128,15 @@ Create a new feature spec in the backlog using the canonical template.
 ### `vb move <id> <status> [owner]`
 Move a feature between workflow statuses and optionally assign an owner.
 
+**Valid Statuses:** `backlog`, `in-progress`, `blocked`, `review`, `done`
+
+**Allowed Transitions:**
+- `backlog` → `in-progress`
+- `in-progress` → `blocked`, `review`
+- `blocked` → `in-progress`
+- `review` → `in-progress`, `done`
+- `done` → (terminal, no transitions)
+
 **Flags:**
 - `--owner <name>` – Set the owner while moving
 

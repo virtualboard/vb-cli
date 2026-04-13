@@ -80,7 +80,7 @@ make version-bump VERSION=v1.2.3
 **`internal/feature/`** - Core feature spec logic
 - `model.go` - Feature struct with YAML frontmatter parsing
 - `manager.go` - CRUD operations for feature files
-- `status.go` - Workflow status directory mappings (backlog → in-progress → done)
+- `status.go` - Workflow status directory mappings (backlog → in-progress → blocked/review → done)
 - `sections.go` - Body section parsing/manipulation (H2 headings)
 - `errors.go` - Custom error types (`InvalidFileError` for batch parse failures)
 
@@ -160,7 +160,9 @@ Feature description here...
 - Criterion 2
 ```
 
-**Status Workflow**: `backlog` → `in-progress` → `done`
+**Status Workflow**: `backlog` → `in-progress` → `review` → `done` (with `blocked` as a side state)
+- Valid statuses: `backlog`, `in-progress`, `blocked`, `review`, `done`
+- Transitions: backlog→in-progress, in-progress→blocked/review, blocked→in-progress, review→in-progress/done, done→(terminal)
 - Each status maps to a directory: `.virtualboard/features/{status}/`
 - Files must be in the correct directory for their status
 - Dependencies must be `done` before moving to `in-progress`
