@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.8.1] - 2026-04-12
+
+### Changed
+
+- Bump `golang.org/x/term` from 0.39.0 to 0.42.0
+
 ## [v0.8.0] - 2026-04-12
 
 ### Added
