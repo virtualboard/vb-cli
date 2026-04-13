@@ -3,31 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Install · VirtualBoard CLI</title>
+  <title>Install — VirtualBoard CLI</title>
   <meta name="description" content="Download the latest release for your platform. Simple installation instructions for macOS, Linux, and Windows.">
 
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Global Styles -->
   <link rel="stylesheet" href="globals.css">
 
-  <!-- Tailwind Configuration -->
   <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            background: 'oklch(0.13 0.01 240)',
-            foreground: 'oklch(0.95 0.005 240)',
-            primary: 'oklch(0.65 0.12 220)',
-            'primary-foreground': 'oklch(0.13 0.01 240)',
-            secondary: 'oklch(0.7 0.15 190)',
-            muted: 'oklch(0.25 0.01 240)',
-            'muted-foreground': 'oklch(0.6 0.01 240)',
-            border: 'oklch(0.20 0.01 240)',
-            card: 'oklch(0.16 0.01 240)',
-            accent: 'oklch(0.75 0.18 160)',
+            background:   'oklch(0.12 0.008 260)',
+            foreground:   'oklch(0.94 0.005 260)',
+            primary:      'oklch(0.68 0.14 230)',
+            'primary-foreground': 'oklch(0.12 0.008 260)',
+            secondary:    'oklch(0.72 0.12 195)',
+            muted:        'oklch(0.22 0.008 260)',
+            'muted-foreground': 'oklch(0.55 0.01 260)',
+            border:       'oklch(0.22 0.008 260)',
+            card:         'oklch(0.155 0.008 260)',
+            accent:       'oklch(0.78 0.16 155)',
           }
         }
       }
@@ -37,310 +33,305 @@
 <body class="min-h-screen bg-background text-foreground">
 
   <!-- Navigation -->
-  <nav class="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/50">
-    <div class="container max-w-7xl mx-auto px-6">
-      <div class="flex items-center justify-between py-4">
-        <!-- Brand -->
-        <a href="index.html" class="flex items-center gap-3 text-foreground hover:text-primary transition-all">
-          <div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-            <img src="avatar.png" alt="VirtualBoard CLI" class="w-full h-full object-cover" />
+  <nav class="site-nav">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="flex items-center justify-between h-16">
+        <a href="index.html" class="flex items-center gap-2.5 text-foreground hover:text-primary transition-colors">
+          <div class="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 ring-1 ring-white/10">
+            <img src="avatar.png" alt="VirtualBoard" class="w-full h-full object-cover" />
           </div>
-          <span class="font-bold text-lg">VirtualBoard CLI</span>
+          <span class="font-semibold text-sm tracking-tight">VirtualBoard CLI</span>
         </a>
 
-        <!-- Navigation Links -->
-        <div class="flex items-center gap-8">
-          <ul class="hidden md:flex items-center gap-6">
-            <li><a href="index.html" class="text-muted-foreground hover:text-foreground transition-colors">Home</a></li>
-            <li><a href="features.html" class="text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
-            <li><a href="install.html" class="text-primary font-medium hover:text-primary/80 transition-colors">Install</a></li>
-            <li><a href="workflow.html" class="text-muted-foreground hover:text-foreground transition-colors">Workflow</a></li>
-            <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors">Template</a></li>
+        <div class="flex items-center gap-6">
+          <ul class="hidden md:flex items-center gap-5">
+            <li><a href="index.html" class="nav-link">Home</a></li>
+            <li><a href="features.html" class="nav-link">Features</a></li>
+            <li><a href="install.html" class="nav-link nav-link--active">Install</a></li>
+            <li><a href="workflow.html" class="nav-link">Workflow</a></li>
+            <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="nav-link">Template</a></li>
           </ul>
-
-          <!-- GitHub Link -->
-          <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-primary transition-colors" aria-label="GitHub Repository">
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" aria-label="GitHub">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
           </a>
         </div>
       </div>
 
-      <!-- Mobile Navigation -->
-      <div class="md:hidden flex flex-wrap gap-4 pb-4 justify-center">
-        <a href="index.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Home</a>
-        <a href="features.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Features</a>
-        <a href="install.html" class="text-primary font-medium text-sm">Install</a>
-        <a href="workflow.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Workflow</a>
-        <a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Template</a>
+      <div class="md:hidden flex flex-wrap gap-4 pb-3 justify-center">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="features.html" class="nav-link">Features</a>
+        <a href="install.html" class="nav-link nav-link--active">Install</a>
+        <a href="workflow.html" class="nav-link">Workflow</a>
+        <a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="nav-link">Template</a>
       </div>
     </div>
   </nav>
 
   <main>
-    <!-- Hero Section -->
-    <section class="py-24 lg:py-32 text-center relative overflow-hidden">
-      <div class="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none"></div>
-
-      <div class="container max-w-7xl mx-auto px-6 relative">
-        <h1 class="text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
-          Install VirtualBoard <span class="text-primary">CLI</span>
-        </h1>
-        <p class="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-          Download the latest release for your platform
-        </p>
+    <!-- Hero -->
+    <section class="hero text-center">
+      <div class="max-w-5xl mx-auto px-6 relative">
+        <div class="animate-fade-up">
+          <h1 class="mb-4">
+            Install VirtualBoard <span class="text-primary">CLI</span>
+          </h1>
+          <p class="text-lg text-muted-foreground max-w-xl mx-auto">
+            Download the latest release for your platform
+          </p>
+        </div>
       </div>
     </section>
 
-    <!-- Download Section -->
+    <!-- Downloads -->
     <section class="py-20 lg:py-28">
-      <div class="container max-w-7xl mx-auto px-6">
-        <!-- Section Header -->
-        <div class="text-center mb-16">
-          <h2 class="text-5xl font-bold mb-6 tracking-tight">Download Latest Release</h2>
-          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+      <div class="max-w-5xl mx-auto px-6">
+        <div class="text-center mb-14">
+          <p class="badge badge--primary mb-4 mx-auto inline-flex">Download</p>
+          <h2 class="mb-4">Latest Release</h2>
+          <p class="text-muted-foreground max-w-xl mx-auto">
             Choose the binary for your platform and architecture
           </p>
         </div>
 
-        <!-- Download Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto stagger">
           <!-- macOS ARM -->
-          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-arm64"
-             class="flex flex-col items-center gap-4 bg-card/30 p-8 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02] hover:translate-y-[-2px] group">
-            <svg class="w-12 h-12 text-primary transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-arm64" class="download-card">
+            <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
             <div class="text-center">
-              <div class="text-lg font-semibold mb-1">macOS</div>
-              <div class="text-sm text-muted-foreground">Apple Silicon (ARM64)</div>
+              <div class="font-semibold">macOS</div>
+              <div class="text-xs text-muted-foreground mt-0.5">Apple Silicon (ARM64)</div>
             </div>
           </a>
 
           <!-- macOS Intel -->
-          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-amd64"
-             class="flex flex-col items-center gap-4 bg-card/30 p-8 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02] hover:translate-y-[-2px] group">
-            <svg class="w-12 h-12 text-primary transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-macos-amd64" class="download-card">
+            <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
             <div class="text-center">
-              <div class="text-lg font-semibold mb-1">macOS</div>
-              <div class="text-sm text-muted-foreground">Intel (AMD64)</div>
+              <div class="font-semibold">macOS</div>
+              <div class="text-xs text-muted-foreground mt-0.5">Intel (AMD64)</div>
             </div>
           </a>
 
           <!-- Linux AMD64 -->
-          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-amd64"
-             class="flex flex-col items-center gap-4 bg-card/30 p-8 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02] hover:translate-y-[-2px] group">
-            <svg class="w-12 h-12 text-primary transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.84-.727 1.59-1.338 2.237-.27.285-.57.56-.882.82-2.134 1.778-4.91 3.298-5.79 6.154-.88 2.857 1.425 5.777 4.216 6.825 2.791 1.048 6.011.524 8.524-.974 2.512-1.498 4.226-4.524 4.594-7.381.184-1.421.367-2.841.734-4.205.734-2.73 2.254-5.011 4.594-6.454.52-.32 1.096-.53 1.665-.695 1.278-.369 2.623-.463 3.905-.194.512.108 1.02.272 1.516.463.992.383 1.904.933 2.716 1.617.81.684 1.516 1.533 2.049 2.528.533.994.884 2.133.973 3.317.089 1.184-.091 2.403-.533 3.511-.442 1.108-1.14 2.107-2.049 2.853-.908.746-2.025 1.258-3.17 1.458-1.145.2-2.335.108-3.425-.273-1.09-.381-2.078-1.053-2.852-1.933-.774-.88-1.335-1.97-1.616-3.117-.14-.573-.21-1.163-.237-1.753-.027-.59.008-1.18.105-1.753.097-.572.255-1.133.464-1.663.21-.53.464-1.043.774-1.515.31-.472.674-.903 1.05-1.293.377-.39.795-.74 1.242-1.043.447-.303.925-.56 1.425-.773.5-.213 1.02-.38 1.545-.505.525-.125 1.06-.21 1.595-.257.535-.047 1.075-.055 1.615-.024.54.031 1.08.103 1.615.213 1.07.22 2.093.63 3.017 1.213.924.583 1.75 1.347 2.423 2.237.673.89 1.195 1.903 1.545 2.972.35 1.07.525 2.195.525 3.317 0 1.122-.175 2.247-.525 3.317-.35 1.07-.872 2.082-1.545 2.972-.673.89-1.5 1.654-2.423 2.237-.924.583-1.947.993-3.017 1.213-.535.11-1.075.182-1.615.213-.54.031-1.08.023-1.615-.024-.535-.047-1.07-.132-1.595-.257-.525-.125-1.045-.292-1.545-.505-.5-.213-.978-.47-1.425-.773-.447-.303-.865-.653-1.242-1.043-.377-.39-.74-.821-1.05-1.293-.31-.472-.564-.985-.774-1.515-.21-.53-.367-1.091-.464-1.663-.097-.573-.132-1.163-.105-1.753.027-.59.097-1.18.237-1.753.281-1.147.842-2.237 1.616-3.117.774-.88 1.762-1.552 2.852-1.933 1.09-.381 2.28-.473 3.425-.273 1.145.2 2.262.712 3.17 1.458.908.746 1.607 1.745 2.049 2.853.442 1.108.622 2.327.533 3.511-.089 1.184-.44 2.323-.973 3.317-.533.995-1.239 1.844-2.049 2.528-.81.684-1.724 1.234-2.716 1.617-.496.191-1.004.355-1.516.463-1.282.269-2.627.175-3.905-.194-.569-.165-1.145-.375-1.665-.695-2.34-1.443-3.86-3.724-4.594-6.454-.367-1.364-.55-2.784-.734-4.205-.368-2.857-2.082-5.883-4.594-7.381-2.513-1.498-5.733-2.022-8.524-.974-2.791 1.048-5.096 3.968-4.216 6.825.88 2.856 3.656 4.376 5.79 6.154.312.26.612.535.882.82.611.647 1.06 1.397 1.338 2.237.589 1.771 1.831 3.47 2.716 4.521.75 1.067.974 1.928 1.05 3.02.065 1.491 1.056 5.965-3.17 6.298-.165.013-.325.021-.48.021z"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-amd64" class="download-card">
+            <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
             <div class="text-center">
-              <div class="text-lg font-semibold mb-1">Linux</div>
-              <div class="text-sm text-muted-foreground">AMD64</div>
+              <div class="font-semibold">Linux</div>
+              <div class="text-xs text-muted-foreground mt-0.5">AMD64</div>
             </div>
           </a>
 
           <!-- Linux ARM64 -->
-          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-arm64"
-             class="flex flex-col items-center gap-4 bg-card/30 p-8 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02] hover:translate-y-[-2px] group">
-            <svg class="w-12 h-12 text-primary transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.84-.727 1.59-1.338 2.237-.27.285-.57.56-.882.82-2.134 1.778-4.91 3.298-5.79 6.154-.88 2.857 1.425 5.777 4.216 6.825 2.791 1.048 6.011.524 8.524-.974 2.512-1.498 4.226-4.524 4.594-7.381.184-1.421.367-2.841.734-4.205.734-2.73 2.254-5.011 4.594-6.454.52-.32 1.096-.53 1.665-.695 1.278-.369 2.623-.463 3.905-.194.512.108 1.02.272 1.516.463.992.383 1.904.933 2.716 1.617.81.684 1.516 1.533 2.049 2.528.533.994.884 2.133.973 3.317.089 1.184-.091 2.403-.533 3.511-.442 1.108-1.14 2.107-2.049 2.853-.908.746-2.025 1.258-3.17 1.458-1.145.2-2.335.108-3.425-.273-1.09-.381-2.078-1.053-2.852-1.933-.774-.88-1.335-1.97-1.616-3.117-.14-.573-.21-1.163-.237-1.753-.027-.59.008-1.18.105-1.753.097-.572.255-1.133.464-1.663.21-.53.464-1.043.774-1.515.31-.472.674-.903 1.05-1.293.377-.39.795-.74 1.242-1.043.447-.303.925-.56 1.425-.773.5-.213 1.02-.38 1.545-.505.525-.125 1.06-.21 1.595-.257.535-.047 1.075-.055 1.615-.024.54.031 1.08.103 1.615.213 1.07.22 2.093.63 3.017 1.213.924.583 1.75 1.347 2.423 2.237.673.89 1.195 1.903 1.545 2.972.35 1.07.525 2.195.525 3.317 0 1.122-.175 2.247-.525 3.317-.35 1.07-.872 2.082-1.545 2.972-.673.89-1.5 1.654-2.423 2.237-.924.583-1.947.993-3.017 1.213-.535.11-1.075.182-1.615.213-.54.031-1.08.023-1.615-.024-.535-.047-1.07-.132-1.595-.257-.525-.125-1.045-.292-1.545-.505-.5-.213-.978-.47-1.425-.773-.447-.303-.865-.653-1.242-1.043-.377-.39-.74-.821-1.05-1.293-.31-.472-.564-.985-.774-1.515-.21-.53-.367-1.091-.464-1.663-.097-.573-.132-1.163-.105-1.753.027-.59.097-1.18.237-1.753.281-1.147.842-2.237 1.616-3.117.774-.88 1.762-1.552 2.852-1.933 1.09-.381 2.28-.473 3.425-.273 1.145.2 2.262.712 3.17 1.458.908.746 1.607 1.745 2.049 2.853.442 1.108.622 2.327.533 3.511-.089 1.184-.44 2.323-.973 3.317-.533.995-1.239 1.844-2.049 2.528-.81.684-1.724 1.234-2.716 1.617-.496.191-1.004.355-1.516.463-1.282.269-2.627.175-3.905-.194-.569-.165-1.145-.375-1.665-.695-2.34-1.443-3.86-3.724-4.594-6.454-.367-1.364-.55-2.784-.734-4.205-.368-2.857-2.082-5.883-4.594-7.381-2.513-1.498-5.733-2.022-8.524-.974-2.791 1.048-5.096 3.968-4.216 6.825.88 2.856 3.656 4.376 5.79 6.154.312.26.612.535.882.82.611.647 1.06 1.397 1.338 2.237.589 1.771 1.831 3.47 2.716 4.521.75 1.067.974 1.928 1.05 3.02.065 1.491 1.056 5.965-3.17 6.298-.165.013-.325.021-.48.021z"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-linux-arm64" class="download-card">
+            <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
             <div class="text-center">
-              <div class="text-lg font-semibold mb-1">Linux</div>
-              <div class="text-sm text-muted-foreground">ARM64</div>
+              <div class="font-semibold">Linux</div>
+              <div class="text-xs text-muted-foreground mt-0.5">ARM64</div>
             </div>
           </a>
 
           <!-- Windows -->
-          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-windows-amd64.exe"
-             class="flex flex-col items-center gap-4 bg-card/30 p-8 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02] hover:translate-y-[-2px] group">
-            <svg class="w-12 h-12 text-primary transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli/releases/latest/download/vb-windows-amd64.exe" class="download-card">
+            <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
             <div class="text-center">
-              <div class="text-lg font-semibold mb-1">Windows</div>
-              <div class="text-sm text-muted-foreground">AMD64</div>
+              <div class="font-semibold">Windows</div>
+              <div class="text-xs text-muted-foreground mt-0.5">AMD64</div>
             </div>
           </a>
         </div>
       </div>
     </section>
 
-    <!-- Installation Instructions Section -->
-    <section class="py-20 lg:py-28 bg-gradient-to-b from-transparent via-muted/20 to-transparent">
-      <div class="container max-w-7xl mx-auto px-6">
-        <!-- Section Header -->
-        <div class="text-center mb-16">
-          <h2 class="text-5xl font-bold mb-6 tracking-tight">Installation Instructions</h2>
-          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+    <div class="section-divider"></div>
+
+    <!-- Installation Instructions -->
+    <section class="py-20 lg:py-28 section-gradient">
+      <div class="max-w-4xl mx-auto px-6">
+        <div class="text-center mb-14">
+          <h2 class="mb-4">Installation Instructions</h2>
+          <p class="text-muted-foreground max-w-xl mx-auto">
             Platform-specific setup guides
           </p>
         </div>
 
-        <!-- Instruction Cards -->
-        <div class="max-w-4xl mx-auto space-y-8">
-          <!-- macOS Instructions -->
-          <div class="bg-card/30 rounded-xl border border-border/50 overflow-hidden">
-            <div class="bg-card/50 px-8 py-6 border-b border-border/50">
-              <div class="flex items-center gap-4">
-                <svg class="w-8 h-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-                </svg>
-                <h3 class="text-2xl font-bold">macOS</h3>
-              </div>
+        <div class="space-y-6 stagger">
+          <!-- macOS -->
+          <div class="instruction-card">
+            <div class="instruction-card-header">
+              <svg class="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              <h3 class="text-lg font-semibold">macOS</h3>
             </div>
-            <div class="p-8">
-              <p class="text-muted-foreground mb-6">
+            <div class="instruction-card-body">
+              <p class="text-sm text-muted-foreground mb-6">
                 After downloading the appropriate binary for your Mac (ARM64 for Apple Silicon, AMD64 for Intel):
               </p>
 
-              <ol class="space-y-6">
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    1
-                  </div>
+              <ol class="space-y-5">
+                <li class="flex items-start gap-3">
+                  <div class="step-num">1</div>
                   <div class="flex-1 pt-1">
-                    <p class="text-foreground">Open Terminal</p>
+                    <p class="text-sm">Open Terminal</p>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    2
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">2</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Navigate to your Downloads folder:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">cd ~/Downloads</code>
+                    <p class="text-sm mb-2">Navigate to your Downloads folder:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>cd ~/Downloads</code>
+                      </div>
                     </div>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    3
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">3</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Move the binary to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">/usr/local/bin</code> and rename it to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb</code>:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <pre class="text-sm font-mono text-muted-foreground"># For Apple Silicon (ARM64)
+                    <p class="text-sm mb-2">Move and rename the binary:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+<pre># For Apple Silicon (ARM64)
 sudo mv vb-macos-arm64 /usr/local/bin/vb
 
 # OR for Intel (AMD64)
 sudo mv vb-macos-amd64 /usr/local/bin/vb</pre>
+                      </div>
                     </div>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    4
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">4</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Make the binary executable:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">sudo chmod +x /usr/local/bin/vb</code>
+                    <p class="text-sm mb-2">Make the binary executable:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>sudo chmod +x /usr/local/bin/vb</code>
+                      </div>
                     </div>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    5
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">5</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Verify the installation:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">vb version</code>
+                    <p class="text-sm mb-2">Verify the installation:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>vb version</code>
+                      </div>
                     </div>
                   </div>
                 </li>
               </ol>
 
-              <div class="mt-6 p-4 bg-accent/10 border border-accent/20 rounded-lg">
-                <p class="text-sm text-muted-foreground">
-                  <strong class="text-foreground">Note:</strong> If you get a security warning when first running <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-xs font-mono">vb</code>, go to System Preferences → Security & Privacy → General and click "Allow Anyway".
-                </p>
+              <div class="callout callout--info mt-6">
+                <p><strong>Note:</strong> If you get a security warning when first running <code class="inline-code">vb</code>, go to System Preferences &rarr; Security &amp; Privacy &rarr; General and click "Allow Anyway".</p>
               </div>
             </div>
           </div>
 
-          <!-- Linux Instructions -->
-          <div class="bg-card/30 rounded-xl border border-border/50 overflow-hidden">
-            <div class="bg-card/50 px-8 py-6 border-b border-border/50">
-              <div class="flex items-center gap-4">
-                <svg class="w-8 h-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.84-.727 1.59-1.338 2.237-.27.285-.57.56-.882.82-2.134 1.778-4.91 3.298-5.79 6.154-.88 2.857 1.425 5.777 4.216 6.825 2.791 1.048 6.011.524 8.524-.974 2.512-1.498 4.226-4.524 4.594-7.381.184-1.421.367-2.841.734-4.205.734-2.73 2.254-5.011 4.594-6.454.52-.32 1.096-.53 1.665-.695 1.278-.369 2.623-.463 3.905-.194.512.108 1.02.272 1.516.463.992.383 1.904.933 2.716 1.617.81.684 1.516 1.533 2.049 2.528.533.994.884 2.133.973 3.317.089 1.184-.091 2.403-.533 3.511-.442 1.108-1.14 2.107-2.049 2.853-.908.746-2.025 1.258-3.17 1.458-1.145.2-2.335.108-3.425-.273-1.09-.381-2.078-1.053-2.852-1.933-.774-.88-1.335-1.97-1.616-3.117-.14-.573-.21-1.163-.237-1.753-.027-.59.008-1.18.105-1.753.097-.572.255-1.133.464-1.663.21-.53.464-1.043.774-1.515.31-.472.674-.903 1.05-1.293.377-.39.795-.74 1.242-1.043.447-.303.925-.56 1.425-.773.5-.213 1.02-.38 1.545-.505.525-.125 1.06-.21 1.595-.257.535-.047 1.075-.055 1.615-.024.54.031 1.08.103 1.615.213 1.07.22 2.093.63 3.017 1.213.924.583 1.75 1.347 2.423 2.237.673.89 1.195 1.903 1.545 2.972.35 1.07.525 2.195.525 3.317 0 1.122-.175 2.247-.525 3.317-.35 1.07-.872 2.082-1.545 2.972-.673.89-1.5 1.654-2.423 2.237-.924.583-1.947.993-3.017 1.213-.535.11-1.075.182-1.615.213-.54.031-1.08.023-1.615-.024-.535-.047-1.07-.132-1.595-.257-.525-.125-1.045-.292-1.545-.505-.5-.213-.978-.47-1.425-.773-.447-.303-.865-.653-1.242-1.043-.377-.39-.74-.821-1.05-1.293-.31-.472-.564-.985-.774-1.515-.21-.53-.367-1.091-.464-1.663-.097-.573-.132-1.163-.105-1.753.027-.59.097-1.18.237-1.753.281-1.147.842-2.237 1.616-3.117.774-.88 1.762-1.552 2.852-1.933 1.09-.381 2.28-.473 3.425-.273 1.145.2 2.262.712 3.17 1.458.908.746 1.607 1.745 2.049 2.853.442 1.108.622 2.327.533 3.511-.089 1.184-.44 2.323-.973 3.317-.533.995-1.239 1.844-2.049 2.528-.81.684-1.724 1.234-2.716 1.617-.496.191-1.004.355-1.516.463-1.282.269-2.627.175-3.905-.194-.569-.165-1.145-.375-1.665-.695-2.34-1.443-3.86-3.724-4.594-6.454-.367-1.364-.55-2.784-.734-4.205-.368-2.857-2.082-5.883-4.594-7.381-2.513-1.498-5.733-2.022-8.524-.974-2.791 1.048-5.096 3.968-4.216 6.825.88 2.856 3.656 4.376 5.79 6.154.312.26.612.535.882.82.611.647 1.06 1.397 1.338 2.237.589 1.771 1.831 3.47 2.716 4.521.75 1.067.974 1.928 1.05 3.02.065 1.491 1.056 5.965-3.17 6.298-.165.013-.325.021-.48.021z"/>
-                </svg>
-                <h3 class="text-2xl font-bold">Linux</h3>
-              </div>
+          <!-- Linux -->
+          <div class="instruction-card">
+            <div class="instruction-card-header">
+              <svg class="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+              <h3 class="text-lg font-semibold">Linux</h3>
             </div>
-            <div class="p-8">
-              <p class="text-muted-foreground mb-6">
+            <div class="instruction-card-body">
+              <p class="text-sm text-muted-foreground mb-6">
                 After downloading the appropriate binary for your system (AMD64 or ARM64):
               </p>
 
-              <ol class="space-y-6">
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    1
-                  </div>
+              <ol class="space-y-5">
+                <li class="flex items-start gap-3">
+                  <div class="step-num">1</div>
                   <div class="flex-1 pt-1">
-                    <p class="text-foreground">Open your terminal</p>
+                    <p class="text-sm">Open your terminal</p>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    2
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">2</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Navigate to your Downloads folder:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">cd ~/Downloads</code>
+                    <p class="text-sm mb-2">Navigate to your Downloads folder:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>cd ~/Downloads</code>
+                      </div>
                     </div>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    3
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">3</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Move the binary to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">/usr/local/bin</code> and rename it to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb</code>:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <pre class="text-sm font-mono text-muted-foreground"># For AMD64
+                    <p class="text-sm mb-2">Move and rename the binary:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+<pre># For AMD64
 sudo mv vb-linux-amd64 /usr/local/bin/vb
 
 # OR for ARM64
 sudo mv vb-linux-arm64 /usr/local/bin/vb</pre>
+                      </div>
                     </div>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    4
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">4</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Make the binary executable:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">sudo chmod +x /usr/local/bin/vb</code>
+                    <p class="text-sm mb-2">Make the binary executable:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>sudo chmod +x /usr/local/bin/vb</code>
+                      </div>
                     </div>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    5
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">5</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Verify the installation:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">vb version</code>
+                    <p class="text-sm mb-2">Verify the installation:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>vb version</code>
+                      </div>
                     </div>
                   </div>
                 </li>
@@ -348,57 +339,50 @@ sudo mv vb-linux-arm64 /usr/local/bin/vb</pre>
             </div>
           </div>
 
-          <!-- Windows Instructions -->
-          <div class="bg-card/30 rounded-xl border border-border/50 overflow-hidden">
-            <div class="bg-card/50 px-8 py-6 border-b border-border/50">
-              <div class="flex items-center gap-4">
-                <svg class="w-8 h-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
-                </svg>
-                <h3 class="text-2xl font-bold">Windows</h3>
-              </div>
+          <!-- Windows -->
+          <div class="instruction-card">
+            <div class="instruction-card-header">
+              <svg class="w-6 h-6 text-primary" fill="currentColor" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+              <h3 class="text-lg font-semibold">Windows</h3>
             </div>
-            <div class="p-8">
-              <p class="text-muted-foreground mb-6">
-                After downloading <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb-windows-amd64.exe</code>:
+            <div class="instruction-card-body">
+              <p class="text-sm text-muted-foreground mb-6">
+                After downloading <code class="inline-code">vb-windows-amd64.exe</code>:
               </p>
 
-              <ol class="space-y-6">
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    1
-                  </div>
+              <ol class="space-y-5">
+                <li class="flex items-start gap-3">
+                  <div class="step-num">1</div>
                   <div class="flex-1 pt-1">
-                    <p class="text-foreground">Rename the downloaded file to <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb.exe</code></p>
+                    <p class="text-sm">Rename the downloaded file to <code class="inline-code">vb.exe</code></p>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    2
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">2</div>
                   <div class="flex-1 pt-1">
-                    <p class="text-foreground">Move <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb.exe</code> to a directory in your PATH (e.g., <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">C:\Windows\System32</code> or create a <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">C:\bin</code> directory and add it to your PATH)</p>
+                    <p class="text-sm">Move <code class="inline-code">vb.exe</code> to a directory in your PATH (e.g., <code class="inline-code">C:\Windows\System32</code> or create a <code class="inline-code">C:\bin</code> directory and add it to your PATH)</p>
                   </div>
                 </li>
-
-                <li class="flex items-start gap-4">
-                  <div class="bg-primary/10 text-primary w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg flex-shrink-0 border border-primary/20">
-                    3
-                  </div>
+                <li class="flex items-start gap-3">
+                  <div class="step-num">3</div>
                   <div class="flex-1">
-                    <p class="text-foreground mb-3">Open Command Prompt or PowerShell and verify the installation:</p>
-                    <div class="bg-muted/50 border border-border/30 rounded-lg p-4">
-                      <code class="text-sm font-mono text-muted-foreground">vb version</code>
+                    <p class="text-sm mb-2">Open Command Prompt or PowerShell and verify:</p>
+                    <div class="code-terminal">
+                      <div class="code-terminal-bar">
+                        <div class="code-terminal-dot code-terminal-dot--red"></div>
+                        <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+                        <div class="code-terminal-dot code-terminal-dot--green"></div>
+                      </div>
+                      <div class="code-terminal-body">
+                        <code>vb version</code>
+                      </div>
                     </div>
                   </div>
                 </li>
               </ol>
 
-              <div class="mt-6 p-4 bg-accent/10 border border-accent/20 rounded-lg">
-                <p class="text-sm text-muted-foreground">
-                  <strong class="text-foreground">Alternative:</strong> You can also place <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-xs font-mono">vb.exe</code> in any directory and run it using the full path, or add that directory to your system PATH.
-                </p>
+              <div class="callout callout--info mt-6">
+                <p><strong>Alternative:</strong> You can also place <code class="inline-code">vb.exe</code> in any directory and run it using the full path, or add that directory to your system PATH.</p>
               </div>
             </div>
           </div>
@@ -406,33 +390,45 @@ sudo mv vb-linux-arm64 /usr/local/bin/vb</pre>
       </div>
     </section>
 
-    <!-- Next Steps Section -->
-    <section class="py-20 lg:py-28">
-      <div class="container max-w-7xl mx-auto px-6">
-        <div class="max-w-3xl mx-auto text-center">
-          <h2 class="text-5xl font-bold mb-6 tracking-tight">Next Steps</h2>
-          <p class="text-lg text-muted-foreground mb-8">
-            Once installed, initialize a VirtualBoard workspace in your repository:
-          </p>
+    <div class="section-divider"></div>
 
-          <div class="bg-muted/50 border border-border/30 rounded-lg p-6 mb-8">
-            <pre class="text-sm font-mono text-muted-foreground">vb init
+    <!-- Next Steps -->
+    <section class="py-20 lg:py-28">
+      <div class="max-w-3xl mx-auto px-6 text-center">
+        <h2 class="mb-4">Next Steps</h2>
+        <p class="text-muted-foreground mb-8">
+          Once installed, initialize a VirtualBoard workspace in your repository:
+        </p>
+
+        <div class="code-terminal max-w-md mx-auto mb-8">
+          <div class="code-terminal-bar">
+            <div class="code-terminal-dot code-terminal-dot--red"></div>
+            <div class="code-terminal-dot code-terminal-dot--yellow"></div>
+            <div class="code-terminal-dot code-terminal-dot--green"></div>
+          </div>
+          <div class="code-terminal-body">
+<pre>vb init
 vb --help</pre>
           </div>
-
-          <a href="workflow.html" class="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:bg-primary/90 transition-all shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:scale-105">
-            View Workflow Guide
-          </a>
         </div>
+
+        <a href="workflow.html" class="btn btn--primary">
+          View Workflow Guide
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </a>
       </div>
     </section>
   </main>
 
   <!-- Footer -->
-  <footer class="py-16 text-center border-t border-border/50">
-    <div class="container max-w-7xl mx-auto px-6">
-      <p class="text-muted-foreground">
-        VirtualBoard CLI · Released under the <a href="https://github.com/virtualboard/vb-cli/blob/main/LICENSE" class="text-primary hover:text-primary/80 transition-colors" target="_blank" rel="noreferrer">MIT License</a>
+  <footer class="site-footer">
+    <div class="max-w-6xl mx-auto px-6">
+      <p>
+        VirtualBoard CLI &middot; Released under the
+        <a href="https://github.com/virtualboard/vb-cli/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT License</a>
+      </p>
+      <p class="mt-1">
+        Created by <a href="https://astucia.ai" target="_blank" rel="noreferrer" class="footer-brand">Astucia AI&#8482;</a>
       </p>
     </div>
   </footer>

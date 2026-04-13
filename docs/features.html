@@ -3,31 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Features · VirtualBoard CLI</title>
+  <title>Features — VirtualBoard CLI</title>
   <meta name="description" content="Complete command reference for the VirtualBoard CLI. Purpose-built commands for every stage of your feature lifecycle.">
 
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Global Styles -->
   <link rel="stylesheet" href="globals.css">
 
-  <!-- Tailwind Configuration -->
   <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            background: 'oklch(0.13 0.01 240)',
-            foreground: 'oklch(0.95 0.005 240)',
-            primary: 'oklch(0.65 0.12 220)',
-            'primary-foreground': 'oklch(0.13 0.01 240)',
-            secondary: 'oklch(0.7 0.15 190)',
-            muted: 'oklch(0.25 0.01 240)',
-            'muted-foreground': 'oklch(0.6 0.01 240)',
-            border: 'oklch(0.20 0.01 240)',
-            card: 'oklch(0.16 0.01 240)',
-            accent: 'oklch(0.75 0.18 160)',
+            background:   'oklch(0.12 0.008 260)',
+            foreground:   'oklch(0.94 0.005 260)',
+            primary:      'oklch(0.68 0.14 230)',
+            'primary-foreground': 'oklch(0.12 0.008 260)',
+            secondary:    'oklch(0.72 0.12 195)',
+            muted:        'oklch(0.22 0.008 260)',
+            'muted-foreground': 'oklch(0.55 0.01 260)',
+            border:       'oklch(0.22 0.008 260)',
+            card:         'oklch(0.155 0.008 260)',
+            accent:       'oklch(0.78 0.16 155)',
           }
         }
       }
@@ -37,176 +33,249 @@
 <body class="min-h-screen bg-background text-foreground">
 
   <!-- Navigation -->
-  <nav class="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b border-border/50">
-    <div class="container max-w-7xl mx-auto px-6">
-      <div class="flex items-center justify-between py-4">
-        <!-- Brand -->
-        <a href="index.html" class="flex items-center gap-3 text-foreground hover:text-primary transition-all">
-          <div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-            <img src="avatar.png" alt="VirtualBoard CLI" class="w-full h-full object-cover" />
+  <nav class="site-nav">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="flex items-center justify-between h-16">
+        <a href="index.html" class="flex items-center gap-2.5 text-foreground hover:text-primary transition-colors">
+          <div class="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 ring-1 ring-white/10">
+            <img src="avatar.png" alt="VirtualBoard" class="w-full h-full object-cover" />
           </div>
-          <span class="font-bold text-lg">VirtualBoard CLI</span>
+          <span class="font-semibold text-sm tracking-tight">VirtualBoard CLI</span>
         </a>
 
-        <!-- Navigation Links -->
-        <div class="flex items-center gap-8">
-          <ul class="hidden md:flex items-center gap-6">
-            <li><a href="index.html" class="text-muted-foreground hover:text-foreground transition-colors">Home</a></li>
-            <li><a href="features.html" class="text-primary font-medium hover:text-primary/80 transition-colors">Features</a></li>
-            <li><a href="install.html" class="text-muted-foreground hover:text-foreground transition-colors">Install</a></li>
-            <li><a href="workflow.html" class="text-muted-foreground hover:text-foreground transition-colors">Workflow</a></li>
-            <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors">Template</a></li>
+        <div class="flex items-center gap-6">
+          <ul class="hidden md:flex items-center gap-5">
+            <li><a href="index.html" class="nav-link">Home</a></li>
+            <li><a href="features.html" class="nav-link nav-link--active">Features</a></li>
+            <li><a href="install.html" class="nav-link">Install</a></li>
+            <li><a href="workflow.html" class="nav-link">Workflow</a></li>
+            <li><a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="nav-link">Template</a></li>
           </ul>
-
-          <!-- GitHub Link -->
-          <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-primary transition-colors" aria-label="GitHub Repository">
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-            </svg>
+          <a href="https://github.com/virtualboard/vb-cli" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors" aria-label="GitHub">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
           </a>
         </div>
       </div>
 
-      <!-- Mobile Navigation -->
-      <div class="md:hidden flex flex-wrap gap-4 pb-4 justify-center">
-        <a href="index.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Home</a>
-        <a href="features.html" class="text-primary font-medium text-sm">Features</a>
-        <a href="install.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Install</a>
-        <a href="workflow.html" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Workflow</a>
-        <a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="text-muted-foreground hover:text-foreground transition-colors text-sm">Template</a>
+      <div class="md:hidden flex flex-wrap gap-4 pb-3 justify-center">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="features.html" class="nav-link nav-link--active">Features</a>
+        <a href="install.html" class="nav-link">Install</a>
+        <a href="workflow.html" class="nav-link">Workflow</a>
+        <a href="https://virtualboard.github.io/template-base/" target="_blank" rel="noreferrer" class="nav-link">Template</a>
       </div>
     </div>
   </nav>
 
   <main>
-    <!-- Hero Section -->
-    <section class="py-24 lg:py-32 text-center relative overflow-hidden">
-      <div class="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none"></div>
-
-      <div class="container max-w-7xl mx-auto px-6 relative">
-        <h1 class="text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
-          Command <span class="text-primary">Highlights</span>
-        </h1>
-        <p class="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-          Complete command reference for the VirtualBoard CLI
-        </p>
+    <!-- Hero -->
+    <section class="hero text-center">
+      <div class="max-w-5xl mx-auto px-6 relative">
+        <div class="animate-fade-up">
+          <h1 class="mb-4">
+            Command <span class="text-primary">Highlights</span>
+          </h1>
+          <p class="text-lg text-muted-foreground max-w-xl mx-auto">
+            Complete command reference for the VirtualBoard CLI
+          </p>
+        </div>
       </div>
     </section>
 
-    <!-- Core Commands Section -->
+    <!-- Core Commands -->
     <section class="py-20 lg:py-28">
-      <div class="container max-w-7xl mx-auto px-6">
-        <!-- Section Header -->
-        <div class="text-center mb-16">
-          <h2 class="text-5xl font-bold mb-6 tracking-tight">Core Commands</h2>
-          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+      <div class="max-w-5xl mx-auto px-6">
+        <div class="text-center mb-14">
+          <p class="badge badge--primary mb-4 mx-auto inline-flex">Core Commands</p>
+          <h2 class="mb-4">Purpose-built for every stage</h2>
+          <p class="text-muted-foreground max-w-xl mx-auto">
             Purpose-built commands for every stage of your feature lifecycle
           </p>
         </div>
 
-        <!-- Command Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto mb-12">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
           <!-- Initialize -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">🚀</div>
-            <h3 class="text-lg font-semibold mb-3">Initialize</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb init</code> downloads and expands the VirtualBoard template archive. Use <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">--force</code> to rebuild an existing workspace or <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">--update</code> to interactively update to the latest template version.
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Initialize</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb init</code> downloads and expands the VirtualBoard template archive. Use <code class="inline-code">--force</code> to rebuild or <code class="inline-code">--update</code> to interactively update to the latest template version.
             </p>
           </div>
 
           <!-- New Feature -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">✨</div>
-            <h3 class="text-lg font-semibold mb-3">New Feature</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb new</code> scaffolds a spec with labels, front-matter, and canonical sections ready for backlog grooming.
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">New Feature</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb new</code> scaffolds a spec with labels, front-matter, and canonical sections ready for backlog grooming.
             </p>
           </div>
 
           <!-- Move -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">➡️</div>
-            <h3 class="text-lg font-semibold mb-3">Move</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb move</code> enforces workflow transitions and can assign owners in one command.
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Move</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb move</code> enforces workflow transitions and can assign owners in one command.
             </p>
           </div>
 
           <!-- Update -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">📝</div>
-            <h3 class="text-lg font-semibold mb-3">Update</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb update</code> patches fields or body sections to keep specs synchronised with product decisions.
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Update</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb update</code> patches fields or body sections to keep specs synchronised with product decisions.
             </p>
           </div>
 
           <!-- Validate -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">✅</div>
-            <h3 class="text-lg font-semibold mb-3">Validate</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb validate</code> surfaces schema, dependency, and workflow issues early. Add <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">--fix</code> to reapply templates.
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Validate</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb validate</code> surfaces schema, dependency, and workflow issues early. Add <code class="inline-code">--fix</code> to reapply templates.
             </p>
           </div>
 
           <!-- Index & Lock -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">📊</div>
-            <h3 class="text-lg font-semibold mb-3">Index & Lock</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb index</code> rebuilds stakeholder-friendly views, while <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">vb lock</code> coordinates collaborative edits.
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Index & Lock</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb index</code> rebuilds stakeholder-friendly views, while <code class="inline-code">vb lock</code> coordinates collaborative edits.
             </p>
           </div>
         </div>
 
-        <!-- CLI Reference Link -->
-        <div class="text-center">
-          <p class="text-muted-foreground">
-            See the <a href="https://github.com/virtualboard/vb-cli/blob/main/docs/CLI.md" target="_blank" rel="noreferrer" class="text-primary hover:text-primary/80 transition-colors font-medium">full CLI reference</a> for exhaustive command options and exit codes.
+        <div class="text-center mt-10">
+          <p class="text-sm text-muted-foreground">
+            See the
+            <a href="https://github.com/virtualboard/vb-cli/blob/main/docs/CLI.md" target="_blank" rel="noreferrer" class="text-primary hover:text-foreground transition-colors font-medium">full CLI reference</a>
+            for exhaustive command options and exit codes.
           </p>
         </div>
       </div>
     </section>
 
-    <!-- Built for Teams Section -->
-    <section class="py-20 lg:py-28 bg-gradient-to-b from-transparent via-muted/20 to-transparent">
-      <div class="container max-w-7xl mx-auto px-6">
-        <!-- Section Header -->
-        <div class="text-center mb-16">
-          <h2 class="text-5xl font-bold mb-6 tracking-tight">Built for Teams</h2>
-          <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Enterprise-grade quality and security standards
+    <div class="section-divider"></div>
+
+    <!-- Security & Integrity (v0.8.0) -->
+    <section class="py-20 lg:py-28">
+      <div class="max-w-5xl mx-auto px-6">
+        <div class="text-center mb-14">
+          <p class="badge badge--warm mb-4 mx-auto inline-flex">New in v0.8.0</p>
+          <h2 class="mb-4">Security & Integrity</h2>
+          <p class="text-muted-foreground max-w-xl mx-auto">
+            Hardened internals for production-grade workflows
           </p>
         </div>
 
-        <!-- Team Features Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
+          <!-- Audit Logging -->
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.75 0.14 55 / 0.12); border-color: oklch(0.75 0.14 55 / 0.2);">
+              <svg class="w-5 h-5" style="color: oklch(0.75 0.14 55);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Audit Logging</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              Append-only JSONL audit log with SHA-256 hash chain at <code class="inline-code">.virtualboard/audit.jsonl</code>. Every feature operation is recorded with tamper-evident hashes for full traceability.
+            </p>
+          </div>
+
+          <!-- Checksum Verification -->
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.75 0.14 55 / 0.12); border-color: oklch(0.75 0.14 55 / 0.2);">
+              <svg class="w-5 h-5" style="color: oklch(0.75 0.14 55);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Checksum-Verified Upgrades</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              <code class="inline-code">vb upgrade</code> now verifies downloaded binary integrity against SHA-256 checksums before replacing the current binary, preventing supply-chain tampering.
+            </p>
+          </div>
+
+          <!-- Atomic Locks -->
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.75 0.14 55 / 0.12); border-color: oklch(0.75 0.14 55 / 0.2);">
+              <svg class="w-5 h-5" style="color: oklch(0.75 0.14 55);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Atomic Lock Files</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              Lock file creation uses <code class="inline-code">O_CREATE|O_EXCL</code> to prevent TOCTOU race conditions. Concurrent <code class="inline-code">vb lock</code> calls are now safely serialised.
+            </p>
+          </div>
+
+          <!-- Semantic Version Comparison -->
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.75 0.14 55 / 0.12); border-color: oklch(0.75 0.14 55 / 0.2);">
+              <svg class="w-5 h-5" style="color: oklch(0.75 0.14 55);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Semantic Version Comparison</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              Proper semver parsing replaces string-based comparison in <code class="inline-code">vb upgrade</code>. Versions like v1.10.0 are now correctly ranked above v1.9.0.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <!-- Built for Teams -->
+    <section class="py-20 lg:py-28 section-gradient">
+      <div class="max-w-5xl mx-auto px-6">
+        <div class="text-center mb-14">
+          <p class="badge badge--accent mb-4 mx-auto inline-flex">Built for Teams</p>
+          <h2 class="mb-4">Enterprise-grade standards</h2>
+          <p class="text-muted-foreground max-w-xl mx-auto">
+            Quality and security baked into every layer
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 stagger">
           <!-- Quality Gates -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">🎯</div>
-            <h3 class="text-lg font-semibold mb-3">Quality Gates</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.78 0.16 155 / 0.12); border-color: oklch(0.78 0.16 155 / 0.2);">
+              <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Quality Gates</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
               Pre-commit hooks and GitHub Actions enforce <strong class="text-foreground">100% coverage</strong>, gosec scanning, and multi-platform build checks on every change.
             </p>
           </div>
 
           <!-- Secure by Default -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">🔒</div>
-            <h3 class="text-lg font-semibold mb-3">Secure by Default</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              Atomic file operations, strict permissions, and explicit lock semantics keep collaborative workspaces consistent.
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.78 0.16 155 / 0.12); border-color: oklch(0.78 0.16 155 / 0.2);">
+              <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Secure by Default</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              Atomic file operations, strict permissions (0600/0750), and explicit lock semantics keep collaborative workspaces consistent.
             </p>
           </div>
 
           <!-- Template Driven -->
-          <div class="group bg-card/30 p-6 rounded-xl border border-border/50 hover:bg-card/50 hover:border-border hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:scale-[1.02]">
-            <div class="text-4xl mb-4 transition-transform group-hover:scale-110">📋</div>
-            <h3 class="text-lg font-semibold mb-3">Template Driven</h3>
-            <p class="text-muted-foreground text-sm leading-relaxed">
-              The <code class="bg-muted/50 px-2 py-1 rounded border border-border/30 text-sm font-mono">internal/template</code> package codifies VirtualBoard spec expectations, so teams stay aligned on structure and content.
+          <div class="vb-card">
+            <div class="card-icon" style="background: oklch(0.78 0.16 155 / 0.12); border-color: oklch(0.78 0.16 155 / 0.2);">
+              <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Template Driven</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              The <code class="inline-code">internal/template</code> package codifies VirtualBoard spec expectations, so teams stay aligned on structure and content.
             </p>
           </div>
         </div>
@@ -215,10 +284,14 @@
   </main>
 
   <!-- Footer -->
-  <footer class="py-16 text-center border-t border-border/50">
-    <div class="container max-w-7xl mx-auto px-6">
-      <p class="text-muted-foreground">
-        VirtualBoard CLI · Released under the <a href="https://github.com/virtualboard/vb-cli/blob/main/LICENSE" class="text-primary hover:text-primary/80 transition-colors" target="_blank" rel="noreferrer">MIT License</a>
+  <footer class="site-footer">
+    <div class="max-w-6xl mx-auto px-6">
+      <p>
+        VirtualBoard CLI &middot; Released under the
+        <a href="https://github.com/virtualboard/vb-cli/blob/main/LICENSE" target="_blank" rel="noreferrer">MIT License</a>
+      </p>
+      <p class="mt-1">
+        Created by <a href="https://astucia.ai" target="_blank" rel="noreferrer" class="footer-brand">Astucia AI&#8482;</a>
       </p>
     </div>
   </footer>
