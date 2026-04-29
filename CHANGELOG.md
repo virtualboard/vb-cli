@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.8.2] - 2026-04-28
+
+### Fixed
+
+- `vb init --update` now ignores `.virtualboard/audit.jsonl`, since the local append-only audit log will always diverge from the template
+
 ## [v0.8.1] - 2026-04-12
 
 ### Changed

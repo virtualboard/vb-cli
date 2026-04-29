@@ -232,6 +232,10 @@ func shouldSkipFile(relPath string) bool {
 	if relPath == "features/INDEX.md" || relPath == filepath.Join("features", "INDEX.md") {
 		return true
 	}
+	// Skip audit.jsonl - local append-only audit log, always diverges from template
+	if relPath == "audit.jsonl" {
+		return true
+	}
 	return false
 }
 

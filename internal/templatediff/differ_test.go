@@ -323,6 +323,16 @@ func TestShouldSkipFile(t *testing.T) {
 			path: "templates/feature.md",
 			want: false,
 		},
+		{
+			name: "audit.jsonl should be skipped",
+			path: "audit.jsonl",
+			want: true,
+		},
+		{
+			name: "audit.jsonl in subdirectory should not be skipped",
+			path: "features/audit.jsonl",
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {
