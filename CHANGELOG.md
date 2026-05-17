@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [v0.9.0] - 2026-05-17
 
+### Changed
+
+- Bump `golang.org/x/term` from 0.42.0 to 0.43.0 (transitive `golang.org/x/sys` 0.43.0 → 0.44.0); incorporates [#51](https://github.com/virtualboard/vb-cli/pull/51)
+
 ### Added
 
 - `vb audit` command for inspecting the SHA-256 hash-chained audit log at `.virtualboard/audit.jsonl`
