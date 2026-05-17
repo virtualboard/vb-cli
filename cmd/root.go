@@ -80,4 +80,5 @@ func registerCommands() {
 	rootCmd.AddCommand(newInstallCommand())
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newUpgradeCommand())
+	rootCmd.AddCommand(newAuditCommand())
 }

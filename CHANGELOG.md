@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.9.0] - 2026-05-17
+
+### Added
+
+- `vb audit` command for inspecting the SHA-256 hash-chained audit log at `.virtualboard/audit.jsonl`
+- Audit filters: `--action`, `--actor`, `--feature-id` (all repeatable, OR-within / AND-across), `--since` / `--until` (RFC3339 or YYYY-MM-DD), `--contains` (case-insensitive substring match on details), `--limit`, `--tail`
+- Six audit output formats via `--format`: `human` (default), `table`, `jsonl`, `json`, `xml`, `agent` (LLM-friendly key:value blocks)
+- `--verify` flag walks the hash chain and exits with `ExitCodeValidation` (1) on any tampering
+- `internal/audit` package gains `Read`, `Filter`/`Apply`, `Verify`, `Render`, `ParseFormat`, and `ParseTime` exports so other tools can consume the audit log programmatically
+
 ## [v0.8.2] - 2026-04-28
 
 ### Fixed
