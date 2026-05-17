@@ -7,7 +7,7 @@ import (
 )
 
 // Current defines the CLI semantic version following https://semver.org/.
-const Current = "v0.8.2"
+const Current = "v0.9.0"
 
 // Parsed represents a parsed semantic version.
 type Parsed struct {
