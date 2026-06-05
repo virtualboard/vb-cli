@@ -250,6 +250,75 @@ Acquire, check, or release feature locks.
 - `--status` – Show lock status
 - `--force` – Override an active lock
 
+### `vb audit`
+
+Inspect the SHA-256 hash-chained audit log at `.virtualboard/audit.jsonl`. The
+log is appended to by every lock/unlock and feature-mutation action; this
+command lets you query it without resorting to `jq`/`grep` and optionally
+verify the integrity of the chain.
+
+**Filter Flags (combine with AND across, OR within a repeated flag):**
+
+- `--action <name>` – Filter by action value (e.g. `lock`, `unlock`, `move`, `create`, `delete`). Repeatable.
+- `--actor <name>` – Filter by actor. Repeatable.
+- `--feature-id <id>` – Filter by feature_id. Repeatable.
+- `--since <time>` – Inclusive lower bound. Accepts `2026-04-16` or `2026-04-16T21:06:59Z`.
+- `--until <time>` – Inclusive upper bound. Same formats.
+- `--contains <substr>` – Case-insensitive substring match against the `details` column.
+- `--limit <n>` – Cap the number of returned entries (0 = no cap).
+- `--tail` – When `--limit` is set, return the LAST n entries instead of the first n.
+
+**Output Flags:**
+
+- `--format <fmt>` – One of: `human` (default), `table`, `jsonl`, `json`, `xml`, `agent`. Ignored when `--json` is set.
+- `--verify` – Walk the hash chain and fail with exit code `1` (Validation) on any tampering. Prints `Audit chain verified: OK` when the chain is intact.
+
+**Formats:**
+
+| Format | Description |
+|--------|-------------|
+| `human` | One line per entry with reformatted timestamps. Hides hashes unless `--verbose`. The default. |
+| `table` | Fixed-width text table via `tabwriter`. With `--verbose`, includes truncated `prev`/`hash` columns. |
+| `jsonl` | Round-trippable: one JSON object per line, identical to the on-disk format. |
+| `json` | Single document `{"count": N, "entries": [...]}` for scripting. |
+| `xml` | `<audit count="N"><entry>...</entry></audit>` for legacy tooling. |
+| `agent` | Compact `key: value` blocks separated by `--- entry N ---` headers, optimised for LLM consumption. Empty optional fields are omitted. |
+
+**Interaction with `--json`:**
+
+When the global `--json` flag is set, the response is always wrapped as
+`{success, message, data:{path, total, count, entries, verified, parse_errors}}`
+and `--format` is ignored. This matches the convention used by other `vb`
+commands: `--json` is for programmatic consumers, `--format` for presentation.
+
+**Examples:**
+
+```bash
+# Default human-readable output
+vb audit
+
+# All lock/unlock activity as a table
+vb audit --format table --action lock --action unlock
+
+# Everything alice did to FTR-0019 last week, JSON-Lines
+vb audit --format jsonl --actor alice --feature-id FTR-0019 --since 2026-04-10
+
+# Last 5 entries whose details mention "ttl"
+vb audit --contains ttl --limit 5 --tail
+
+# Confirm the audit chain has not been tampered with
+vb audit --verify
+
+# Machine-readable summary for an agent or script
+vb audit --json --since 2026-04-01
+```
+
+**Exit Codes:**
+
+- `0` – Audit log read and rendered successfully (or empty).
+- `1` – Validation error: bad `--format`, unparsable `--since`/`--until`, or `--verify` failure.
+- `6` – Filesystem error reading the audit log.
+
 ### `vb version`
 Print the CLI semantic version (supports JSON output).
 

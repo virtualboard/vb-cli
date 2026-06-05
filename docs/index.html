@@ -90,7 +90,7 @@
           <div class="flex flex-wrap gap-2.5 justify-center mb-12 stagger">
             <span class="badge badge--primary">Tests &middot; passing</span>
             <span class="badge badge--accent">Coverage &middot; 100%</span>
-            <span class="badge badge--warm">Release &middot; v0.8.1</span>
+            <span class="badge badge--warm">Release &middot; v0.9.0</span>
             <span class="badge badge--muted">SemVer 2.0.0</span>
           </div>
 
@@ -177,6 +177,17 @@
             <h3 class="text-base font-semibold mb-2">Validation + Indexing</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
               Enforce schema, workflow, and dependency rules with <code class="inline-code">vb validate</code>. Regenerate Markdown, JSON, and HTML indexes via <code class="inline-code">vb index</code>.
+            </p>
+          </div>
+
+          <!-- Tamper-Evident Audit -->
+          <div class="vb-card">
+            <div class="card-icon">
+              <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold mb-2">Tamper-Evident Audit</h3>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+              Inspect the SHA-256 hash-chained audit log with <code class="inline-code">vb audit</code>. Filter on any column, render as human, table, JSON/JSONL, XML, or agent-friendly format, and use <code class="inline-code">--verify</code> to detect tampering.
             </p>
           </div>
 

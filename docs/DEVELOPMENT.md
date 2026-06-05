@@ -5,6 +5,24 @@
 - `make test` – run unit tests with coverage (requires 100% coverage).
 - `make package` – build the CLI binary into `dist/`.
 
+## Internal Packages
+
+Contributor-facing APIs in `internal/` are deliberately kept small. The most
+commonly extended packages:
+
+- `internal/feature` – feature spec CRUD, status workflow, body sections.
+- `internal/validator` – schema + workflow + dependency rules.
+- `internal/indexer` – Markdown/JSON/HTML index generators with diff detection.
+- `internal/audit` – the SHA-256 hash-chained audit log. `Logger` appends new
+  entries (used by `internal/lock` and `internal/feature`). `Read` parses the
+  on-disk JSONL file into `[]Entry`, `Filter.Apply` does column filtering,
+  `Render` emits one of six text formats, and `Verify` walks the chain. The
+  `vb audit` command in `cmd/audit.go` is the only consumer today; add new
+  filters by extending `Filter` and new formats by extending the `Format`
+  enum and the `Render` switch.
+- `internal/lock` – TTL-based collaborative locks; emits audit entries on
+  every state transition.
+
 ## GitHub Actions Workflows
 
 This project uses GitHub Actions for automated testing, building, and releasing. The workflow is designed around a `dev` → `main` branching strategy with automatic release creation.
