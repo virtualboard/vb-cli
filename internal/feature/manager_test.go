@@ -78,14 +78,21 @@ func TestManagerLifecycle(t *testing.T) {
 		t.Fatalf("expected list to return entries: %v (%d)", err, len(list))
 	}
 
-	if path, err := mgr.DeleteFeature(feat.FrontMatter.ID); err != nil {
-		t.Fatalf("delete feature failed: %v", err)
-	} else if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("expected file removed")
+	if _, err := mgr.DeleteFeature(feat.FrontMatter.ID); !errors.Is(err, ErrDeleteConflict) {
+		t.Fatalf("non-backlog referenced feature deletion error = %v, want ErrDeleteConflict", err)
 	}
 
-	if _, err := mgr.LoadByID(feat.FrontMatter.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected not found after delete, got %v", err)
+	deletable, err := mgr.CreateFeature("Unreferenced Backlog Deletion", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := mgr.DeleteFeature(deletable.FrontMatter.ID); err != nil {
+		t.Fatalf("delete unreferenced backlog feature: %v", err)
+	} else if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected backlog feature removed")
+	}
+	if _, err := mgr.LoadByID(deletable.FrontMatter.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted backlog feature not found, got %v", err)
 	}
 
 	indexPath := filepath.Join(mgr.FeaturesDir(), "INDEX.md")
@@ -114,12 +121,12 @@ func TestManagerLifecycle(t *testing.T) {
 	}
 
 	os.RemoveAll(filepath.Join(opts.RootDir, "features"))
-	if _, err := mgr.List(); err != nil {
-		t.Fatalf("expected list to handle missing directory: %v", err)
+	if _, err := mgr.List(); err == nil {
+		t.Fatal("missing configured features root was treated as an empty board")
 	}
 
-	if _, _, err := mgr.MoveFeature("missing", "backlog", ""); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected not found for missing feature: %v", err)
+	if _, _, err := mgr.MoveFeature("missing", "backlog", ""); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("expected invalid feature identity for malformed ID: %v", err)
 	}
 }
 
@@ -140,7 +147,7 @@ func newTestFeature(fix *testutil.Fixture, id, status, title string, labels []st
 			Title:        title,
 			Status:       status,
 			Owner:        "owner",
-			Priority:     "medium",
+			Priority:     "P2",
 			Complexity:   "M",
 			Created:      "2023-01-01",
 			Updated:      "2023-01-01",
@@ -211,66 +218,34 @@ func TestRenameToMatchTitle(t *testing.T) {
 	fix := testutil.NewFixture(t)
 	opts := fix.Options(t, false, false, false)
 	mgr := NewManager(opts)
-
-	// Create a feature with a specific title
 	feat, err := mgr.CreateFeature("Original Title", nil)
 	if err != nil {
-		t.Fatalf("create feature failed: %v", err)
+		t.Fatal(err)
 	}
-
 	originalPath := feat.Path
-	expectedFilename := fmt.Sprintf("%s-original-title.md", feat.FrontMatter.ID)
-	if filepath.Base(originalPath) != expectedFilename {
-		t.Fatalf("expected filename %s, got %s", expectedFilename, filepath.Base(originalPath))
-	}
-
-	// Update the title in frontmatter
 	feat.FrontMatter.Title = "Updated Title With Changes"
 	if err := mgr.Save(feat); err != nil {
-		t.Fatalf("save feature failed: %v", err)
+		t.Fatal(err)
 	}
-
-	// Rename to match the new title
 	renamed, err := mgr.RenameToMatchTitle(feat)
 	if err != nil {
-		t.Fatalf("rename failed: %v", err)
+		t.Fatal(err)
 	}
-	if !renamed {
-		t.Fatalf("expected rename to return true when file was renamed")
+	if renamed {
+		t.Fatal("immutable feature basename was renamed")
 	}
-
-	// Verify the new filename
-	expectedNewFilename := fmt.Sprintf("%s-updated-title-with-changes.md", feat.FrontMatter.ID)
-	if filepath.Base(feat.Path) != expectedNewFilename {
-		t.Fatalf("expected filename %s, got %s", expectedNewFilename, filepath.Base(feat.Path))
+	if feat.Path != originalPath {
+		t.Fatalf("path changed from %s to %s", originalPath, feat.Path)
 	}
-
-	// Verify old file is gone
-	if _, err := os.Stat(originalPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("old file should not exist at %s", originalPath)
+	if _, err := os.Stat(originalPath); err != nil {
+		t.Fatalf("immutable file missing: %v", err)
 	}
-
-	// Verify new file exists
-	if _, err := os.Stat(feat.Path); err != nil {
-		t.Fatalf("new file should exist at %s: %v", feat.Path, err)
-	}
-
-	// Verify we can load by ID using the new filename
 	loaded, err := mgr.LoadByID(feat.FrontMatter.ID)
 	if err != nil {
-		t.Fatalf("load by ID failed after rename: %v", err)
+		t.Fatal(err)
 	}
 	if loaded.FrontMatter.Title != "Updated Title With Changes" {
-		t.Fatalf("expected title to be preserved after rename")
-	}
-
-	// Test that renaming when filename already matches returns false
-	renamedAgain, err := mgr.RenameToMatchTitle(feat)
-	if err != nil {
-		t.Fatalf("second rename failed: %v", err)
-	}
-	if renamedAgain {
-		t.Fatalf("expected rename to return false when filename already matches")
+		t.Fatal("title update was not preserved")
 	}
 }
 
@@ -287,10 +262,10 @@ func TestCreateFeatureLocking(t *testing.T) {
 		t.Fatalf("expected FTR-0001, got %s", feat.FrontMatter.ID)
 	}
 
-	// Verify operational lock was released
+	// Internal serialization uses a callback-scoped guard, never a TTL record.
 	lockPath := filepath.Join(opts.RootDir, "locks", "op-create-feature.lock")
 	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected operational lock to be released after create")
+		t.Fatalf("create left an obsolete operational TTL lock")
 	}
 }
 
@@ -304,15 +279,16 @@ func TestMoveFeatureLocking(t *testing.T) {
 		t.Fatalf("create feature failed: %v", err)
 	}
 
+	opts.Actor = "tester"
 	_, _, err = mgr.MoveFeature(feat.FrontMatter.ID, "in-progress", "tester")
 	if err != nil {
 		t.Fatalf("move feature failed: %v", err)
 	}
 
-	// Verify operational lock was released
-	lockPath := filepath.Join(opts.RootDir, "locks", fmt.Sprintf("op-move-%s.lock", feat.FrontMatter.ID))
+	// Internal serialization uses a callback-scoped guard, never a TTL record.
+	lockPath := filepath.Join(opts.RootDir, "locks", featureMutationLockID(feat.FrontMatter.ID)+".lock")
 	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected operational lock to be released after move")
+		t.Fatalf("move left an obsolete operational TTL lock")
 	}
 }
 
@@ -375,13 +351,12 @@ func TestRenameToMatchTitleDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry run rename failed: %v", err)
 	}
-	if !renamed {
-		t.Fatalf("expected rename to return true even in dry-run")
+	if renamed {
+		t.Fatalf("dry-run proposed an immutable basename rename")
 	}
 
-	// Verify path was updated in the struct
-	if feat.Path == originalPath {
-		t.Fatalf("expected path to be updated in struct even in dry-run")
+	if feat.Path != originalPath {
+		t.Fatalf("dry-run changed immutable path in struct")
 	}
 
 	// Verify old file still exists (dry-run doesn't modify disk)

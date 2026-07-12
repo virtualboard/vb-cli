@@ -3,6 +3,7 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,12 +13,19 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/contract"
 	"github.com/virtualboard/vb-cli/internal/util"
 )
 
 var (
 	// ErrNotFound indicates a spec file could not be located.
 	ErrNotFound = errors.New("spec not found")
+)
+
+const (
+	maxSpecFileBytes  int64 = 8 << 20
+	maxSpecTotalBytes int64 = 64 << 20
+	maxSpecEntries          = 4096
 )
 
 // InvalidFile represents a spec file that failed to parse.
@@ -41,30 +49,52 @@ func (e *InvalidFileError) Error() string {
 
 // Manager encapsulates spec file operations.
 type Manager struct {
-	opts *config.Options
-	log  *logrus.Entry
+	opts        *config.Options
+	log         *logrus.Entry
+	lifecycle   *contract.Lifecycle
+	contractErr error
 }
 
 // NewManager constructs a manager with shared configuration.
 func NewManager(opts *config.Options) *Manager {
+	lifecycle, contractErr := contract.Load(opts.RootDir)
 	return &Manager{
-		opts: opts,
-		log:  opts.Logger().WithField("component", "spec"),
+		opts:        opts,
+		log:         opts.Logger().WithField("component", "spec"),
+		lifecycle:   lifecycle,
+		contractErr: contractErr,
 	}
+}
+
+// Lifecycle returns the workspace contract or its load error.
+func (m *Manager) Lifecycle() (*contract.Lifecycle, error) {
+	if m.contractErr != nil {
+		return nil, m.contractErr
+	}
+	return m.lifecycle, nil
 }
 
 // SpecsDir returns the path to the specs directory.
 func (m *Manager) SpecsDir() string {
+	if m.lifecycle != nil {
+		return m.lifecycle.SpecsDir()
+	}
 	return filepath.Join(m.opts.RootDir, "specs")
 }
 
 // SchemaPath returns the JSON schema path for validation.
 func (m *Manager) SchemaPath() string {
+	if m.lifecycle != nil {
+		return filepath.Join(m.lifecycle.SchemasDir(), "system-spec.schema.json")
+	}
 	return filepath.Join(m.opts.RootDir, "schemas", "system-spec.schema.json")
 }
 
 // LoadByName returns the spec with the given filename.
 func (m *Manager) LoadByName(name string) (*Spec, error) {
+	if _, err := m.Lifecycle(); err != nil {
+		return nil, err
+	}
 	specsDir := m.SpecsDir()
 	if _, statErr := os.Stat(specsDir); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
@@ -77,10 +107,12 @@ func (m *Manager) LoadByName(name string) (*Spec, error) {
 	if !strings.HasSuffix(name, ".md") {
 		name = name + ".md"
 	}
+	if filepath.Base(name) != name {
+		return nil, fmt.Errorf("invalid spec name %q", name)
+	}
 
 	path := filepath.Join(specsDir, name)
-	// #nosec G304 -- spec paths are derived from repository structure
-	data, err := os.ReadFile(path)
+	data, err := readRegularSpecFile(m.SpecsDir(), path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
@@ -115,59 +147,88 @@ func (m *Manager) Save(spec *Spec) error {
 
 // List returns all specs.
 func (m *Manager) List() ([]*Spec, error) {
+	if _, err := m.Lifecycle(); err != nil {
+		return nil, err
+	}
 	specsDir := m.SpecsDir()
-	if _, statErr := os.Stat(specsDir); statErr != nil {
+	beforeRoot, statErr := os.Lstat(specsDir)
+	if statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return []*Spec{}, nil
+			return nil, fmt.Errorf("required spec inventory root is missing: %s", specsDir)
 		}
 		return nil, statErr
 	}
+	if !beforeRoot.IsDir() || beforeRoot.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("spec inventory root is not a real directory: %s", specsDir)
+	}
+	root, err := os.OpenRoot(specsDir)
+	if err != nil {
+		return nil, fmt.Errorf("open spec inventory root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	openedRoot, err := root.Stat(".")
+	if err != nil || !openedRoot.IsDir() || !os.SameFile(beforeRoot, openedRoot) {
+		return nil, fmt.Errorf("spec inventory root changed while opening: %s", specsDir)
+	}
+	currentRoot, err := os.Lstat(specsDir)
+	if err != nil || currentRoot.Mode()&os.ModeSymlink != 0 || !currentRoot.IsDir() || !os.SameFile(beforeRoot, currentRoot) {
+		return nil, fmt.Errorf("spec inventory root changed while opening: %s", specsDir)
+	}
+	directory, err := root.Open(".")
+	if err != nil {
+		return nil, fmt.Errorf("open spec inventory directory: %w", err)
+	}
+	defer directory.Close()
 
 	var specs []*Spec
 	var invalidFiles []InvalidFile
-
-	err := filepath.WalkDir(specsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			// Only walk the specs directory, not subdirectories
-			if path != specsDir {
-				return fs.SkipDir
+	entryCount := 0
+	var totalBytes int64
+	for {
+		entries, readErr := directory.ReadDir(128)
+		for _, entry := range entries {
+			entryCount++
+			if entryCount > maxSpecEntries {
+				return nil, fmt.Errorf("spec inventory exceeds %d entries", maxSpecEntries)
 			}
-			return nil
+			name := entry.Name()
+			path := filepath.Join(specsDir, name)
+			if entry.Type()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("spec path is a symbolic link: %s", path)
+			}
+			if entry.IsDir() {
+				continue
+			}
+			if filepath.Ext(name) != ".md" {
+				continue
+			}
+			if entryErr := validateRegularSpecEntry(path, entry); entryErr != nil {
+				return nil, entryErr
+			}
+			if strings.EqualFold(name, "index.md") || strings.EqualFold(name, "readme.md") {
+				continue
+			}
+			data, fileErr := readRegularSpecFile(specsDir, path)
+			if fileErr != nil {
+				return nil, fileErr
+			}
+			totalBytes += int64(len(data))
+			if totalBytes > maxSpecTotalBytes {
+				return nil, fmt.Errorf("spec inventory exceeds %d bytes", maxSpecTotalBytes)
+			}
+			spec, parseErr := Parse(path, data)
+			if parseErr != nil {
+				invalidFiles = append(invalidFiles, InvalidFile{Path: path, Reason: parseErr.Error()})
+				continue
+			}
+			specs = append(specs, spec)
 		}
-		if filepath.Ext(path) != ".md" {
-			return nil
+		if errors.Is(readErr, io.EOF) {
+			break
 		}
-
-		name := filepath.Base(path)
-		// Skip README and index files
-		if strings.EqualFold(name, "index.md") || strings.EqualFold(name, "readme.md") {
-			return nil
-		}
-
-		// #nosec G304 G122 -- spec paths are derived from repository structure during discovery
-		data, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return readErr
+			return nil, fmt.Errorf("stream spec inventory: %w", readErr)
 		}
-
-		spec, parseErr := Parse(path, data)
-		if parseErr != nil {
-			invalidFiles = append(invalidFiles, InvalidFile{
-				Path:   path,
-				Reason: parseErr.Error(),
-			})
-			return nil
-		}
-
-		specs = append(specs, spec)
-		return nil
-	})
-
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
 	}
 
 	if len(invalidFiles) > 0 {
@@ -180,4 +241,26 @@ func (m *Manager) List() ([]*Spec, error) {
 	})
 
 	return specs, nil
+}
+
+func validateRegularSpecEntry(path string, entry fs.DirEntry) error {
+	if entry.Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("spec path is a symbolic link: %s", path)
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return fmt.Errorf("inspect spec path %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("spec path is not a regular file: %s", path)
+	}
+	return nil
+}
+
+func readRegularSpecFile(root, path string) ([]byte, error) {
+	data, _, err := util.ReadRegularFileWithin(root, path, maxSpecFileBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read spec file securely: %w", err)
+	}
+	return data, nil
 }

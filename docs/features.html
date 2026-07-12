@@ -101,7 +101,7 @@
             </div>
             <h3 class="text-base font-semibold mb-2">Initialize</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
-              <code class="inline-code">vb init</code> downloads and expands the VirtualBoard template archive. Use <code class="inline-code">--force</code> to rebuild or <code class="inline-code">--update</code> to interactively update to the latest template version.
+              <code class="inline-code">vb init</code> downloads and verifies the exact template release pinned into the binary. Use <code class="inline-code">--force</code> to refresh managed framework files while preserving workspace state, or <code class="inline-code">--update</code> to review an interactive file-by-file reapplication of that same pinned release.
             </p>
           </div>
 
@@ -192,7 +192,7 @@
             </div>
             <h3 class="text-base font-semibold mb-2">Audit Logging</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
-              Append-only JSONL audit log with SHA-256 hash chain at <code class="inline-code">.virtualboard/audit.jsonl</code>. Every feature operation is recorded with tamper-evident hashes for full traceability.
+              Best-effort JSONL audit appends use a SHA-256 hash chain at <code class="inline-code">.virtualboard/audit.jsonl</code>. Verification detects alteration of events that were recorded; append failures do not block feature mutations, so this local log is not a completeness or non-repudiation proof.
             </p>
           </div>
 
@@ -203,7 +203,7 @@
             </div>
             <h3 class="text-base font-semibold mb-2">Checksum-Verified Upgrades</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
-              <code class="inline-code">vb upgrade</code> now verifies downloaded binary integrity against SHA-256 checksums before replacing the current binary, preventing supply-chain tampering.
+              On Linux and macOS, <code class="inline-code">vb upgrade</code> verifies the exact SHA-256 digest and embedded version marker without executing downloaded bytes before atomic activation. Windows uses manual verified AMD64 or ARM64 installation.
             </p>
           </div>
 
@@ -253,7 +253,7 @@
             </div>
             <h3 class="text-base font-semibold mb-2">Quality Gates</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
-              Pre-commit hooks and GitHub Actions enforce <strong class="text-foreground">100% coverage</strong>, gosec scanning, and multi-platform build checks on every change.
+              GitHub Actions enforces <strong class="text-foreground">measured coverage</strong>, race tests, gosec scanning, and multi-platform release checks without rewriting coverage counters.
             </p>
           </div>
 

@@ -4,26 +4,32 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"html/template"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/virtualboard/vb-cli/internal/feature"
 )
 
+// GenerationMarker identifies the canonical deterministic index format. It is
+// deliberately independent of wall-clock time so unchanged feature state
+// renders byte-for-byte identical output.
+const GenerationMarker = "feature-state-v1"
+
 // Entry represents a single feature within the index.
 type Entry struct {
-	ID         string   `json:"id"`
-	Title      string   `json:"title"`
-	Status     string   `json:"status"`
-	Owner      string   `json:"owner"`
-	Priority   string   `json:"priority"`
-	Complexity string   `json:"complexity"`
-	Labels     []string `json:"labels"`
-	Updated    string   `json:"updated"`
-	Path       string   `json:"path"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Status        string   `json:"status"`
+	Owner         string   `json:"owner"`
+	Priority      string   `json:"priority"`
+	Complexity    string   `json:"complexity"`
+	Labels        []string `json:"labels"`
+	Updated       string   `json:"updated"`
+	StatusChanged string   `json:"status_changed"`
+	Path          string   `json:"path"`
 }
 
 // Data is the structured representation of the index.
@@ -59,27 +65,38 @@ func (g *Generator) Build() (*Data, error) {
 		if err != nil {
 			rel = filepath.Base(feat.Path)
 		}
+		labels := append([]string{}, feat.FrontMatter.Labels...)
 		entry := Entry{
-			ID:         feat.FrontMatter.ID,
-			Title:      feat.FrontMatter.Title,
-			Status:     feat.FrontMatter.Status,
-			Owner:      fallback(feat.FrontMatter.Owner, "unassigned"),
-			Priority:   feat.FrontMatter.Priority,
-			Complexity: feat.FrontMatter.Complexity,
-			Labels:     feat.FrontMatter.Labels,
-			Updated:    feat.FrontMatter.Updated,
-			Path:       filepath.ToSlash(rel),
+			ID:            feat.FrontMatter.ID,
+			Title:         feat.FrontMatter.Title,
+			Status:        feat.FrontMatter.Status,
+			Owner:         fallback(feat.FrontMatter.Owner, "unassigned"),
+			Priority:      feat.FrontMatter.Priority,
+			Complexity:    feat.FrontMatter.Complexity,
+			Labels:        labels,
+			Updated:       feat.FrontMatter.Updated,
+			StatusChanged: feat.FrontMatter.StatusChanged,
+			Path:          filepath.ToSlash(rel),
 		}
 		entries = append(entries, entry)
 		summary[strings.ToLower(entry.Status)]++
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].ID < entries[j].ID
+		if entries[i].ID != entries[j].ID {
+			return entries[i].ID < entries[j].ID
+		}
+		if entries[i].Path != entries[j].Path {
+			return entries[i].Path < entries[j].Path
+		}
+		if entries[i].Status != entries[j].Status {
+			return entries[i].Status < entries[j].Status
+		}
+		return entries[i].Title < entries[j].Title
 	})
 
 	return &Data{
-		Generated: time.Now().Format("2006-01-02"),
+		Generated: GenerationMarker,
 		Features:  entries,
 		Summary:   summary,
 	}, nil
@@ -89,23 +106,24 @@ func (g *Generator) Build() (*Data, error) {
 func (g *Generator) Markdown(data *Data) (string, error) {
 	var b strings.Builder
 	b.WriteString("# Features Index\n\n")
-	b.WriteString(fmt.Sprintf("> Auto-generated on %s - Do not edit manually\n\n", data.Generated))
-	b.WriteString("| ID | Title | Status | Owner | P | C | Labels | Updated | File |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("> Auto-generated from feature state - Do not edit manually\n\n")
+	b.WriteString("| ID | Title | Status | Owner | P | C | Labels | Updated | Status Changed | File |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
 
 	for _, entry := range data.Features {
-		labels := strings.Join(entry.Labels, ", ")
+		labels := escapeMarkdownCell(strings.Join(entry.Labels, ", "))
 		relPath := filepath.ToSlash(entry.Path)
-		link := fmt.Sprintf("[%s](../features/%s)", relPath, relPath)
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			entry.ID,
-			entry.Title,
-			entry.Status,
-			entry.Owner,
-			entry.Priority,
-			entry.Complexity,
+		link := fmt.Sprintf("[%s](%s)", escapeMarkdownCell(relPath), relPath)
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			escapeMarkdownCell(entry.ID),
+			escapeMarkdownCell(entry.Title),
+			escapeMarkdownCell(entry.Status),
+			escapeMarkdownCell(entry.Owner),
+			escapeMarkdownCell(entry.Priority),
+			escapeMarkdownCell(entry.Complexity),
 			labels,
-			entry.Updated,
+			escapeMarkdownCell(entry.Updated),
+			escapeMarkdownCell(entry.StatusChanged),
 			link,
 		))
 	}
@@ -117,11 +135,19 @@ func (g *Generator) Markdown(data *Data) (string, error) {
 	}
 	sort.Strings(keys)
 	for _, status := range keys {
-		b.WriteString(fmt.Sprintf("- **%s**: %d\n", status, data.Summary[status]))
+		b.WriteString(fmt.Sprintf("- **%s**: %d\n", escapeMarkdownCell(status), data.Summary[status]))
 	}
 	b.WriteString(fmt.Sprintf("\n**Total**: %d features\n", len(data.Features)))
 
 	return b.String(), nil
+}
+
+func escapeMarkdownCell(value string) string {
+	value = strings.ReplaceAll(value, "\\", "\\\\")
+	value = strings.ReplaceAll(value, "|", "\\|")
+	value = strings.ReplaceAll(value, "\r\n", " ")
+	value = strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
+	return html.EscapeString(value)
 }
 
 // JSON renders the index as JSON.
@@ -150,8 +176,8 @@ caption { caption-side: top; font-weight: bold; margin-bottom: 1rem; }
 </head>
 <body>
 <table>
-<caption>Features Index (generated {{ .Generated }})</caption>
-<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Owner</th><th>Priority</th><th>Complexity</th><th>Labels</th><th>Updated</th><th>File</th></tr></thead>
+<caption>Features Index</caption>
+<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Owner</th><th>Priority</th><th>Complexity</th><th>Labels</th><th>Updated</th><th>Status Changed</th><th>File</th></tr></thead>
 <tbody>
 {{ range .Features }}
 <tr>
@@ -163,7 +189,8 @@ caption { caption-side: top; font-weight: bold; margin-bottom: 1rem; }
 <td>{{ .Complexity }}</td>
 <td>{{ join .Labels ", " }}</td>
 <td>{{ .Updated }}</td>
-<td><a href="../features/{{ .Path }}">{{ .Path }}</a></td>
+<td>{{ .StatusChanged }}</td>
+<td><a href="{{ .Path }}">{{ .Path }}</a></td>
 </tr>
 {{ end }}
 </tbody>

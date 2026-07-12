@@ -15,7 +15,7 @@ Brief description of the changes in this PR.
 
 - [ ] All existing tests pass
 - [ ] New tests added for new functionality
-- [ ] Test coverage remains at 100%
+- [ ] Measured coverage meets the repository threshold without counter rewriting
 - [ ] Manual testing completed
 
 ## Security

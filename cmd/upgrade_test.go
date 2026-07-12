@@ -2,216 +2,185 @@ package cmd
 
 import (
 	"bytes"
-	"os"
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/sirupsen/logrus"
+
+	"github.com/virtualboard/vb-cli/internal/testutil"
+	"github.com/virtualboard/vb-cli/internal/upgrade"
+	"github.com/virtualboard/vb-cli/internal/version"
 )
 
 func TestNewUpgradeCommand(t *testing.T) {
-	cmd := newUpgradeCommand()
-
-	assert.Equal(t, "upgrade", cmd.Use)
-	assert.Equal(t, "Upgrade vb to the latest version", cmd.Short)
-	assert.Contains(t, cmd.Long, "Check for a newer version")
-	assert.NotNil(t, cmd.RunE)
+	command := newUpgradeCommand()
+	if command.Use != "upgrade" || command.Short != "Upgrade vb to the latest version" {
+		t.Fatalf("unexpected upgrade command metadata: %s / %s", command.Use, command.Short)
+	}
+	if !strings.Contains(command.Long, "Check for a newer version") || command.RunE == nil {
+		t.Fatalf("upgrade command is missing its description or runner")
+	}
 }
 
-func TestUpgradeCommandRunE(t *testing.T) {
-	// This test requires network access and GitHub API
-	// Skip if running in CI or if network is not available
-	if os.Getenv("CI") != "" || os.Getenv("SKIP_NETWORK_TESTS") != "" {
-		t.Skip("Skipping network-dependent test")
-	}
+func stubUpgrade(t *testing.T, fn func(*logrus.Logger, string) (*upgrade.UpgradeResult, error)) {
+	t.Helper()
+	original := runUpgrade
+	runUpgrade = fn
+	t.Cleanup(func() { runUpgrade = original })
+}
 
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "upgrade-cmd-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+func stubUpgradeCheck(t *testing.T, fn func(*logrus.Logger, string) (*upgrade.UpgradeResult, error)) {
+	t.Helper()
+	original := runUpgradeCheck
+	runUpgradeCheck = fn
+	t.Cleanup(func() { runUpgradeCheck = original })
+}
 
-	// Change to the temporary directory
-	oldDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(oldDir)
+func executeUpgradeCommand(t *testing.T, jsonOutput bool) (string, error) {
+	return executeUpgradeCommandWithDryRun(t, jsonOutput, false)
+}
 
-	err = os.Chdir(tempDir)
-	require.NoError(t, err)
+func executeUpgradeCommandWithDryRun(t *testing.T, jsonOutput, dryRun bool) (string, error) {
+	t.Helper()
+	fix := testutil.NewFixture(t)
+	_, output := setupOptions(t, fix, jsonOutput, false, dryRun)
+	command := newUpgradeCommand()
+	command.SilenceErrors = true
+	command.SilenceUsage = true
+	command.SetOut(output)
+	command.SetErr(output)
+	return executeCommand(command, output)
+}
 
-	// Create a minimal config file
-	configContent := `root: .
-json: false
-verbose: false
-dry_run: false
-log_file: ""
-`
-	err = os.WriteFile(".vb.yaml", []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	// Create the command
-	cmd := newUpgradeCommand()
-
-	// Set up output buffer
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	// Run the command
-	err = cmd.Execute()
-
-	// The command might succeed (if no update available) or fail (if network issues)
-	// We just want to make sure it doesn't panic and handles errors gracefully
+func TestUpgradeCommandDryRunChecksWithoutReplacing(t *testing.T) {
+	fullUpgradeCalled := false
+	stubUpgrade(t, func(_ *logrus.Logger, _ string) (*upgrade.UpgradeResult, error) {
+		fullUpgradeCalled = true
+		return nil, errors.New("full upgrade must not run")
+	})
+	stubUpgradeCheck(t, func(_ *logrus.Logger, current string) (*upgrade.UpgradeResult, error) {
+		return &upgrade.UpgradeResult{
+			Message:         "Update available; no files changed",
+			CurrentVersion:  current,
+			LatestVersion:   "v9.9.9",
+			UpdateAvailable: true,
+		}, nil
+	})
+	output, err := executeUpgradeCommandWithDryRun(t, true, true)
 	if err != nil {
-		// Check that the error is related to upgrade functionality or configuration
-		assert.True(t, strings.Contains(err.Error(), "upgrade") || strings.Contains(err.Error(), "configuration"))
+		t.Fatal(err)
+	}
+	if fullUpgradeCalled {
+		t.Fatal("dry-run invoked binary replacement path")
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			DryRun          bool `json:"dry_run"`
+			Upgraded        bool `json:"upgraded"`
+			UpdateAvailable bool `json:"update_available"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("parse dry-run JSON: %v\n%s", err, output)
+	}
+	if !payload.Success || !payload.Data.DryRun || payload.Data.Upgraded || !payload.Data.UpdateAvailable {
+		t.Fatalf("unexpected dry-run payload: %+v", payload)
 	}
 }
 
-func TestUpgradeCommandJSONOutput(t *testing.T) {
-	// This test requires network access and GitHub API
-	if os.Getenv("CI") != "" || os.Getenv("SKIP_NETWORK_TESTS") != "" {
-		t.Skip("Skipping network-dependent test")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "upgrade-cmd-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Change to the temporary directory
-	oldDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(oldDir)
-
-	err = os.Chdir(tempDir)
-	require.NoError(t, err)
-
-	// Create a config file with JSON output enabled
-	configContent := `root: .
-json: true
-verbose: false
-dry_run: false
-log_file: ""
-`
-	err = os.WriteFile(".vb.yaml", []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	// Create the command
-	cmd := newUpgradeCommand()
-
-	// Set up output buffer
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	// Run the command
-	err = cmd.Execute()
-
-	// Check that the output is JSON format
-	output := buf.String()
-	if err == nil {
-		// If successful, should be JSON
-		assert.Contains(t, output, "{")
-		assert.Contains(t, output, "}")
-	} else {
-		// If error, should also be JSON or contain configuration error
-		assert.True(t, strings.Contains(output, "{") || strings.Contains(err.Error(), "configuration"))
-	}
+func executeCommand(command interface {
+	Execute() error
+}, output *bytes.Buffer) (string, error) {
+	err := command.Execute()
+	return output.String(), err
 }
 
-func TestUpgradeCommandWithVerboseLogging(t *testing.T) {
-	// This test requires network access and GitHub API
-	if os.Getenv("CI") != "" || os.Getenv("SKIP_NETWORK_TESTS") != "" {
-		t.Skip("Skipping network-dependent test")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "upgrade-cmd-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Change to the temporary directory
-	oldDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(oldDir)
-
-	err = os.Chdir(tempDir)
-	require.NoError(t, err)
-
-	// Create a config file with verbose logging
-	configContent := `root: .
-json: false
-verbose: true
-dry_run: false
-log_file: ""
-`
-	err = os.WriteFile(".vb.yaml", []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	// Create the command
-	cmd := newUpgradeCommand()
-
-	// Set up output buffer
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	// Run the command
-	err = cmd.Execute()
-
-	// The command should run without panicking
-	// We don't assert specific output since it depends on actual GitHub releases
+func TestUpgradeCommandTextSuccess(t *testing.T) {
+	stubUpgrade(t, func(_ *logrus.Logger, current string) (*upgrade.UpgradeResult, error) {
+		if current != version.Current {
+			t.Fatalf("current version = %s", current)
+		}
+		return &upgrade.UpgradeResult{
+			Message:        "Already current",
+			CurrentVersion: current,
+			LatestVersion:  current,
+		}, nil
+	})
+	output, err := executeUpgradeCommand(t, false)
 	if err != nil {
-		assert.True(t, strings.Contains(err.Error(), "upgrade") || strings.Contains(err.Error(), "configuration"))
+		t.Fatal(err)
+	}
+	if output != "Already current\n" {
+		t.Fatalf("unexpected text output %q", output)
 	}
 }
 
-func TestUpgradeCommandIntegration(t *testing.T) {
-	// This is an integration test that tests the full command flow
-	// Skip if running in CI or if network is not available
-	if os.Getenv("CI") != "" || os.Getenv("SKIP_NETWORK_TESTS") != "" {
-		t.Skip("Skipping network-dependent integration test")
-	}
-
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "upgrade-integration-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	// Change to the temporary directory
-	oldDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(oldDir)
-
-	err = os.Chdir(tempDir)
-	require.NoError(t, err)
-
-	// Create a config file
-	configContent := `root: .
-json: false
-verbose: true
-dry_run: false
-log_file: ""
-`
-	err = os.WriteFile(".vb.yaml", []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	// Test the command through the root command
-	rootCmd := RootCommand()
-	rootCmd.SetArgs([]string{"upgrade"})
-
-	// Set up output buffer
-	var buf bytes.Buffer
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-
-	// Run the command
-	err = rootCmd.Execute()
-
-	// The command should run without panicking
-	// We don't assert specific output since it depends on actual GitHub releases
+func TestUpgradeCommandJSONSuccess(t *testing.T) {
+	stubUpgrade(t, func(_ *logrus.Logger, current string) (*upgrade.UpgradeResult, error) {
+		return &upgrade.UpgradeResult{
+			Message:        "Upgraded",
+			CurrentVersion: current,
+			LatestVersion:  "v9.9.9",
+			Upgraded:       true,
+		}, nil
+	})
+	output, err := executeUpgradeCommand(t, true)
 	if err != nil {
-		assert.True(t, strings.Contains(err.Error(), "upgrade") || strings.Contains(err.Error(), "configuration"))
+		t.Fatal(err)
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Upgraded bool   `json:"upgraded"`
+			Latest   string `json:"latest_version"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("parse JSON output: %v\n%s", err, output)
+	}
+	if !payload.Success || !payload.Data.Upgraded || payload.Data.Latest != "v9.9.9" {
+		t.Fatalf("unexpected JSON payload: %+v", payload)
+	}
+}
+
+func TestUpgradeCommandJSONFailureReturnsNonzero(t *testing.T) {
+	stubUpgrade(t, func(_ *logrus.Logger, _ string) (*upgrade.UpgradeResult, error) {
+		return nil, errors.New("remote release rejected")
+	})
+	output, err := executeUpgradeCommand(t, true)
+	if err == nil || ExitCode(err) != ExitCodeExternalCommand {
+		t.Fatalf("JSON failure exit = %d, err = %v", ExitCode(err), err)
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Error string `json:"error"`
+		} `json:"data"`
+	}
+	if jsonErr := json.Unmarshal([]byte(output), &payload); jsonErr != nil {
+		t.Fatalf("parse JSON failure: %v\n%s", jsonErr, output)
+	}
+	if payload.Success || !strings.Contains(payload.Data.Error, "remote release rejected") {
+		t.Fatalf("unexpected JSON failure payload: %+v", payload)
+	}
+	if strings.Contains(strings.ToLower(output+err.Error()), "sudo") {
+		t.Fatalf("upgrade error recommended unsafe sudo retry: %s / %v", output, err)
+	}
+}
+
+func TestUpgradeCommandPermissionFailureDoesNotRecommendSudo(t *testing.T) {
+	stubUpgrade(t, func(_ *logrus.Logger, _ string) (*upgrade.UpgradeResult, error) {
+		return nil, fs.ErrPermission
+	})
+	output, err := executeUpgradeCommand(t, false)
+	if err == nil || ExitCode(err) != ExitCodeFilesystem {
+		t.Fatalf("permission failure exit = %d, err = %v", ExitCode(err), err)
+	}
+	if strings.Contains(strings.ToLower(output+err.Error()), "sudo") {
+		t.Fatalf("permission failure recommended unsafe sudo retry: %s / %v", output, err)
 	}
 }

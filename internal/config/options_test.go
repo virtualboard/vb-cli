@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,6 +47,37 @@ func TestOptionsInitInfersRootFromCWD(t *testing.T) {
 	}
 }
 
+func TestOptionsInitUsesVirtualBoardRootWhenFlagOmitted(t *testing.T) {
+	envRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(envRoot, "features"), 0o755); err != nil {
+		t.Fatalf("setup environment root: %v", err)
+	}
+	t.Setenv("VIRTUALBOARD_ROOT", envRoot)
+
+	opts := New()
+	if err := opts.Init("", false, false, false, ""); err != nil {
+		t.Fatalf("init from VIRTUALBOARD_ROOT: %v", err)
+	}
+	assertSamePath(t, opts.RootDir, envRoot)
+}
+
+func TestOptionsInitExplicitRootOverridesVirtualBoardRoot(t *testing.T) {
+	envRoot := t.TempDir()
+	explicitRoot := t.TempDir()
+	for _, root := range []string{envRoot, explicitRoot} {
+		if err := os.MkdirAll(filepath.Join(root, "features"), 0o755); err != nil {
+			t.Fatalf("setup root: %v", err)
+		}
+	}
+	t.Setenv("VIRTUALBOARD_ROOT", envRoot)
+
+	opts := New()
+	if err := opts.Init(explicitRoot, false, false, false, ""); err != nil {
+		t.Fatalf("init explicit root: %v", err)
+	}
+	assertSamePath(t, opts.RootDir, explicitRoot)
+}
+
 func TestOptionsInitFallsBackToSrcFeatures(t *testing.T) {
 	root := t.TempDir()
 	srcRoot := filepath.Join(root, "src")
@@ -60,6 +92,21 @@ func TestOptionsInitFallsBackToSrcFeatures(t *testing.T) {
 	assertSamePath(t, opts.RootDir, srcRoot)
 	if err := opts.Close(); err != nil {
 		t.Fatalf("close failed: %v", err)
+	}
+}
+
+func TestOptionsInitRejectsRepositoryControlledWorkspaceSymlink(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "features"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(project, ".virtualboard")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	opts := New()
+	if err := opts.Init(project, false, false, false, ""); err == nil {
+		t.Fatal("repository-controlled .virtualboard symlink was followed")
 	}
 }
 
@@ -104,6 +151,40 @@ func TestOptionsInitErrors(t *testing.T) {
 	cur, err := Current()
 	if err != nil || cur != goodOpts {
 		t.Fatalf("unexpected current: %v %v", cur, err)
+	}
+}
+
+func TestEffectiveActorPrecedence(t *testing.T) {
+	t.Setenv("USER", "os-user")
+	t.Setenv("AGENT_ID", "agent-id")
+	t.Setenv("VIRTUALBOARD_ACTOR", "environment-actor")
+	opts := New()
+	opts.Actor = " explicit-actor "
+	if got := opts.EffectiveActor(); got != "explicit-actor" {
+		t.Fatalf("explicit actor: %q", got)
+	}
+	opts.Actor = ""
+	if got := opts.EffectiveActor(); got != "environment-actor" {
+		t.Fatalf("environment actor: %q", got)
+	}
+	t.Setenv("VIRTUALBOARD_ACTOR", "")
+	if got := opts.EffectiveActor(); got != "agent-id" {
+		t.Fatalf("agent actor: %q", got)
+	}
+	t.Setenv("AGENT_ID", "")
+	if got := opts.EffectiveActor(); got != "" {
+		t.Fatalf("fallback actor: %q", got)
+	}
+	if _, err := opts.RequireActor(); !errors.Is(err, ErrActorRequired) {
+		t.Fatalf("missing actor error: %v", err)
+	}
+	opts.Actor = "unassigned"
+	if _, err := opts.RequireActor(); !errors.Is(err, ErrActorInvalid) {
+		t.Fatalf("unsafe actor accepted: %v", err)
+	}
+	opts.Actor = "valid-agent"
+	if actor, err := opts.RequireActor(); err != nil || actor != "valid-agent" {
+		t.Fatalf("valid actor: %q %v", actor, err)
 	}
 }
 

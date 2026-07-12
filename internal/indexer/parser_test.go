@@ -144,6 +144,15 @@ func TestParseMarkdown(t *testing.T) {
 }
 
 func TestParseTableRow(t *testing.T) {
+	t.Run("parse canonical row with status changed", func(t *testing.T) {
+		row := "| FTR-0001 | Test Feature | review | reviewer | P1 | M | tag1 | 2024-01-03 | 2024-01-02 | [review/FTR-0001-test.md](../features/review/FTR-0001-test.md) |"
+
+		entry, err := parseTableRow(row)
+		require.NoError(t, err)
+		assert.Equal(t, "2024-01-02", entry.StatusChanged)
+		assert.Equal(t, "review/FTR-0001-test.md", entry.Path)
+	})
+
 	t.Run("parse valid row with link", func(t *testing.T) {
 		row := "| FEAT-001 | Test Feature | backlog | alice | high | medium | tag1, tag2 | 2024-01-01 | [backlog/FEAT-001-test.md](../features/backlog/FEAT-001-test.md) |"
 
@@ -158,6 +167,7 @@ func TestParseTableRow(t *testing.T) {
 		assert.Equal(t, "medium", entry.Complexity)
 		assert.Equal(t, []string{"tag1", "tag2"}, entry.Labels)
 		assert.Equal(t, "2024-01-01", entry.Updated)
+		assert.Empty(t, entry.StatusChanged)
 		assert.Equal(t, "backlog/FEAT-001-test.md", entry.Path)
 	})
 

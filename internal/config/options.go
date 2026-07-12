@@ -7,9 +7,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+)
+
+var actorPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+var (
+	// ErrActorRequired indicates that a mutating operation omitted a stable actor.
+	ErrActorRequired = errors.New("explicit actor identity is required")
+	// ErrActorInvalid indicates that the supplied actor is unsafe or malformed.
+	ErrActorInvalid = errors.New("invalid actor identity")
 )
 
 // ctxKeyOptions is used to store options within a cobra command context.
@@ -22,9 +33,35 @@ type Options struct {
 	Verbose    bool
 	DryRun     bool
 	LogFile    string
+	Actor      string
 
 	logger   *logrus.Logger
 	logClose func() error
+}
+
+// EffectiveActor resolves the identity used for ownership and lock checks.
+// An explicit --actor value wins, followed by agent-oriented environment
+// variables. OS usernames are deliberately excluded because multiple agents
+// commonly share one operating-system account.
+func (o *Options) EffectiveActor() string {
+	for _, actor := range []string{o.Actor, os.Getenv("VIRTUALBOARD_ACTOR"), os.Getenv("AGENT_ID")} {
+		if actor = strings.TrimSpace(actor); actor != "" {
+			return actor
+		}
+	}
+	return ""
+}
+
+// RequireActor returns a valid explicit coordination identity for mutations.
+func (o *Options) RequireActor() (string, error) {
+	actor := o.EffectiveActor()
+	if actor == "" {
+		return "", fmt.Errorf("%w: pass --actor or set VIRTUALBOARD_ACTOR/AGENT_ID", ErrActorRequired)
+	}
+	if !actorPattern.MatchString(actor) || strings.EqualFold(actor, "unassigned") || strings.EqualFold(actor, "unknown") {
+		return "", fmt.Errorf("%w %q", ErrActorInvalid, actor)
+	}
+	return actor, nil
 }
 
 var (
@@ -40,6 +77,9 @@ func New() *Options {
 // Init populates options and configures logging.
 func (o *Options) Init(root string, jsonOut, verbose, dry bool, logFile string) error {
 	if root == "" {
+		root = os.Getenv("VIRTUALBOARD_ROOT")
+	}
+	if strings.TrimSpace(root) == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("failed to determine current directory: %w", err)
@@ -52,23 +92,38 @@ func (o *Options) Init(root string, jsonOut, verbose, dry bool, logFile string) 
 		return fmt.Errorf("failed to resolve root path: %w", err)
 	}
 
+	// #nosec G703 -- absRoot is the caller-selected workspace root whose existence must be inspected.
 	if _, err := os.Stat(absRoot); err != nil {
 		return fmt.Errorf("root path invalid: %w", err)
 	}
 
 	if filepath.Base(absRoot) != ".virtualboard" {
 		workspace := filepath.Join(absRoot, ".virtualboard")
-		if info, err := os.Stat(workspace); err == nil && info.IsDir() {
-			absRoot = workspace
+		// #nosec G703 -- workspace is a fixed child of the caller-selected root.
+		if info, err := os.Lstat(workspace); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("refusing symbolic-link workspace root %s", workspace)
+			}
+			if info.IsDir() {
+				absRoot = workspace
+			}
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("failed to inspect workspace: %w", err)
 		}
+		// #nosec G703 -- absRoot is the caller-selected workspace root and is checked without following a leaf symlink.
+	} else if info, err := os.Lstat(absRoot); err != nil {
+		return fmt.Errorf("failed to inspect workspace root: %w", err)
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing symbolic-link workspace root %s", absRoot)
 	}
 
 	featuresPath := filepath.Join(absRoot, "features")
+	// #nosec G703 -- featuresPath is a fixed child used only for legacy-root discovery.
 	if _, err := os.Stat(featuresPath); errors.Is(err, os.ErrNotExist) {
 		alt := filepath.Join(absRoot, "src")
-		if info, altErr := os.Stat(alt); altErr == nil && info.IsDir() {
+		// #nosec G703 -- alt is the fixed legacy src child and its leaf must be a real directory.
+		if info, altErr := os.Lstat(alt); altErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			// #nosec G703 -- the inspected features path is a fixed child of the validated legacy src directory.
 			if _, innerErr := os.Stat(filepath.Join(alt, "features")); innerErr == nil {
 				absRoot = alt
 			}

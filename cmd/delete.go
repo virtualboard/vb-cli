@@ -17,7 +17,7 @@ func newDeleteCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
-		Short: "Delete a feature spec",
+		Short: "Delete an unreferenced backlog feature spec",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := options()
@@ -25,8 +25,26 @@ func newDeleteCommand() *cobra.Command {
 				return err
 			}
 			id := args[0]
+			mgr := feature.NewManager(opts)
+			plan, err := mgr.PrepareDelete(id)
+			if err != nil {
+				if errors.Is(err, feature.ErrNotFound) {
+					return WrapCLIError(ExitCodeNotFound, err)
+				}
+				return WrapCLIError(ExitCodeFilesystem, err)
+			}
+			if opts.JSONOutput && !force && !opts.DryRun {
+				if responseErr := respond(cmd, opts, false, "JSON deletion requires --force; no file was changed", map[string]interface{}{
+					"id":      id,
+					"deleted": false,
+					"dry_run": false,
+				}); responseErr != nil {
+					return responseErr
+				}
+				return WrapCLIError(ExitCodeValidation, fmt.Errorf("--force is required for non-interactive JSON deletion"))
+			}
 
-			if !force {
+			if !force && !opts.DryRun {
 				prompt := fmt.Sprintf("Delete feature %s? Type 'yes' to confirm: ", id)
 				fmt.Fprint(cmd.OutOrStdout(), prompt)
 				reader := bufio.NewReader(cmd.InOrStdin())
@@ -35,27 +53,35 @@ func newDeleteCommand() *cobra.Command {
 					return WrapCLIError(ExitCodeFilesystem, fmt.Errorf("confirmation failed: %w", err))
 				}
 				if strings.TrimSpace(input) != "yes" {
-					if err := respond(cmd, opts, false, "Deletion cancelled", nil); err != nil {
+					if err := respond(cmd, opts, true, "Deletion cancelled; no file was changed", map[string]interface{}{
+						"id":        id,
+						"deleted":   false,
+						"cancelled": true,
+					}); err != nil {
 						return err
 					}
 					return nil
 				}
 			}
 
-			mgr := feature.NewManager(opts)
-			path, err := mgr.DeleteFeature(id)
+			path, err := mgr.DeleteFeaturePlanned(plan)
 			if err != nil {
 				if errors.Is(err, feature.ErrNotFound) {
 					return WrapCLIError(ExitCodeNotFound, err)
 				}
-				return WrapCLIError(ExitCodeFilesystem, err)
+				return wrapMutationError(err)
 			}
 
 			rel, _ := filepath.Rel(opts.RootDir, path)
 			message := fmt.Sprintf("Deleted feature %s", id)
+			if opts.DryRun {
+				message = fmt.Sprintf("Dry-run: would delete feature %s", id)
+			}
 			data := map[string]interface{}{
-				"id":   id,
-				"path": rel,
+				"id":      id,
+				"path":    rel,
+				"deleted": !opts.DryRun,
+				"dry_run": opts.DryRun,
 			}
 			if err := respond(cmd, opts, true, message, data); err != nil {
 				return err

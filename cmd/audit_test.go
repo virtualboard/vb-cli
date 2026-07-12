@@ -10,6 +10,8 @@ import (
 
 	"github.com/virtualboard/vb-cli/internal/audit"
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/contract"
+	"github.com/virtualboard/vb-cli/internal/feature"
 	"github.com/virtualboard/vb-cli/internal/testutil"
 )
 
@@ -176,6 +178,27 @@ func TestAuditCommandVerifySuccess(t *testing.T) {
 	}
 }
 
+func TestAuditCommandUsesContractAuditPath(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, _ := setupOptions(t, fix, false, false, false)
+	if err := os.WriteFile(filepath.Join(opts.RootDir, "virtualboard.json"), contract.CanonicalJSON(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts.Actor = "actor"
+	mgr := feature.NewManager(opts)
+	created, err := mgr.CreateFeature("Canonical Audit", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := mgr.MoveFeature(created.FrontMatter.ID, "in-progress", "actor"); err != nil {
+		t.Fatal(err)
+	}
+	out := runAudit(t, fix, opts, "--verify")
+	if !strings.Contains(out, "create") || !strings.Contains(out, "move") || !strings.Contains(out, "Audit chain verified: OK") {
+		t.Fatalf("audit command did not read configured path: %s", out)
+	}
+}
+
 func TestAuditCommandVerifyFailure(t *testing.T) {
 	fix := testutil.NewFixture(t)
 	path := writeAuditLog(t, fix)
@@ -207,6 +230,31 @@ func TestAuditCommandVerifyFailure(t *testing.T) {
 	}
 }
 
+func TestAuditCommandVerifyRejectsMalformedTail(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	path := writeAuditLog(t, fix)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("{malformed\n"); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	opts, _ := setupOptions(t, fix, false, false, false)
+	config.SetCurrent(opts)
+	cmd := newAuditCommand()
+	cmd.SetArgs([]string{"--verify"})
+	err = cmd.Execute()
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "malformed audit entry") {
+		t.Fatalf("malformed tail verify error = %v", err)
+	}
+}
+
 func TestAuditCommandInvalidFormat(t *testing.T) {
 	fix := testutil.NewFixture(t)
 	writeAuditLog(t, fix)
@@ -221,6 +269,18 @@ func TestAuditCommandInvalidFormat(t *testing.T) {
 		t.Fatalf("expected error for unknown format")
 	} else if ExitCode(err) != ExitCodeValidation {
 		t.Fatalf("expected ExitCodeValidation, got %d", ExitCode(err))
+	}
+}
+
+func TestAuditCommandRejectsUnsafeLimit(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, _ := setupOptions(t, fix, false, false, false)
+	config.SetCurrent(opts)
+	command := newAuditCommand()
+	command.SetArgs([]string{"--limit", "100001"})
+	err := command.Execute()
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "between 0 and") {
+		t.Fatalf("unsafe audit limit error = %v", err)
 	}
 }
 
@@ -302,5 +362,65 @@ func TestAuditCommandVerboseLogsParseErrors(t *testing.T) {
 	// Valid entries still render.
 	if !strings.Contains(out, "create") {
 		t.Fatalf("expected valid entries to still render, got:\n%s", out)
+	}
+}
+
+func TestAuditCommandRejectsSymlinkedAuditLog(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, _ := setupOptions(t, fix, false, false, false)
+	path := filepath.Join(opts.RootDir, "audit.jsonl")
+	target := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(target, []byte("outside must remain untouched\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	config.SetCurrent(opts)
+	command := newAuditCommand()
+	err := command.Execute()
+	if err == nil || ExitCode(err) != ExitCodeFilesystem {
+		t.Fatalf("symlinked audit command error = %v", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil || string(data) != "outside must remain untouched\n" {
+		t.Fatalf("outside audit target changed: %q, %v", data, readErr)
+	}
+}
+
+func TestAuditCommandRejectsHardlinkedAuditLog(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	path := writeAuditLog(t, fix)
+	if err := os.Link(path, path+".alias"); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	opts, _ := setupOptions(t, fix, false, false, false)
+	config.SetCurrent(opts)
+	command := newAuditCommand()
+	err := command.Execute()
+	if err == nil || ExitCode(err) != ExitCodeFilesystem {
+		t.Fatalf("hardlinked audit command error = %v", err)
+	}
+}
+
+func TestAuditCommandVerifyRejectsUnknownAuditFields(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	path := writeAuditLog(t, fix)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString(`{"timestamp":"2026-01-01T00:00:00Z","action":"unknown","actor":"actor","prev_hash":"","entry_hash":"bad","unexpected":true}` + "\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("seed strict audit line: %v %v", writeErr, closeErr)
+	}
+	opts, _ := setupOptions(t, fix, false, false, false)
+	config.SetCurrent(opts)
+	command := newAuditCommand()
+	command.SetArgs([]string{"--verify"})
+	err = command.Execute()
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "malformed audit entry") {
+		t.Fatalf("unknown audit field verify error = %v", err)
 	}
 }

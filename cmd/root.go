@@ -17,13 +17,18 @@ var (
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := config.Current(); err == nil {
+			if opts, err := config.Current(); err == nil {
+				if flagActor != "" {
+					opts.Actor = flagActor
+				}
+				cmd.SetContext(opts.WithContext(cmd.Context()))
 				return nil
 			}
 			opts := config.New()
 			if err := opts.Init(flagRoot, flagJSON, flagVerbose, flagDryRun, flagLogFile); err != nil {
 				return err
 			}
+			opts.Actor = flagActor
 			cmd.SetContext(opts.WithContext(cmd.Context()))
 			return nil
 		},
@@ -34,6 +39,7 @@ var (
 	flagDryRun  bool
 	flagRoot    string
 	flagLogFile string
+	flagActor   string
 )
 
 // Execute runs the root command.
@@ -65,8 +71,9 @@ func registerCommands() {
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output machine-readable JSON")
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "Enable verbose logging")
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "Simulate actions without modifying files")
-	rootCmd.PersistentFlags().StringVar(&flagRoot, "root", "", "Path to repository root (default: current directory)")
+	rootCmd.PersistentFlags().StringVar(&flagRoot, "root", "", "Path to repository root (default: VIRTUALBOARD_ROOT, then current directory)")
 	rootCmd.PersistentFlags().StringVar(&flagLogFile, "log-file", "", "File to write verbose logs")
+	rootCmd.PersistentFlags().StringVar(&flagActor, "actor", "", "Actor identity for ownership and lock enforcement")
 
 	rootCmd.AddCommand(newNewCommand())
 	rootCmd.AddCommand(newMoveCommand())
@@ -81,4 +88,5 @@ func registerCommands() {
 	rootCmd.AddCommand(newVersionCommand())
 	rootCmd.AddCommand(newUpgradeCommand())
 	rootCmd.AddCommand(newAuditCommand())
+	rootCmd.AddCommand(newMigrateCommand())
 }

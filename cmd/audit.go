@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/virtualboard/vb-cli/internal/audit"
+	"github.com/virtualboard/vb-cli/internal/contract"
 )
 
 func newAuditCommand() *cobra.Command {
@@ -26,7 +27,7 @@ func newAuditCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Inspect the hash-chained audit log",
-		Long: `Read and filter .virtualboard/audit.jsonl.
+		Long: `Read and filter the audit log configured by workspace.paths.auditLog.
 
 The audit log is the append-only, SHA-256-chained record of every locking and
 feature-mutation action. Use this command to query it without resorting to
@@ -54,25 +55,21 @@ Examples:
 			if err != nil {
 				return WrapCLIError(ExitCodeValidation, fmt.Errorf("--until: %w", err))
 			}
+			if limit < 0 || limit > audit.MaxQueryEntries {
+				return WrapCLIError(ExitCodeValidation, fmt.Errorf("--limit must be between 0 and %d", audit.MaxQueryEntries))
+			}
 
 			fmtKind, err := audit.ParseFormat(format)
 			if err != nil {
 				return WrapCLIError(ExitCodeValidation, err)
 			}
 
-			path := filepath.Join(opts.RootDir, "audit.jsonl")
-			entries, parseErrs, err := audit.Read(path)
+			lifecycle, err := contract.Load(opts.RootDir)
 			if err != nil {
 				return WrapCLIError(ExitCodeFilesystem, err)
 			}
-			if opts.Verbose && len(parseErrs) > 0 {
-				log := opts.Logger().WithField("component", "audit")
-				for _, perr := range parseErrs {
-					log.Warnf("skipped malformed audit entry: %v", perr)
-				}
-			}
-
-			filtered := audit.Filter{
+			path := lifecycle.AuditLogPath()
+			filter := audit.Filter{
 				Actions:    actions,
 				Actors:     actors,
 				FeatureIDs: featureIDs,
@@ -81,10 +78,25 @@ Examples:
 				Contains:   contains,
 				Limit:      limit,
 				Tail:       tail,
-			}.Apply(entries)
+			}
+			query, err := audit.Query(path, filter, verify)
+			if err != nil {
+				return WrapCLIError(ExitCodeFilesystem, err)
+			}
+			entries := query.Entries
+			parseErrs := query.ParseErrors
+			if opts.Verbose && len(parseErrs) > 0 {
+				log := opts.Logger().WithField("component", "audit")
+				for _, perr := range parseErrs {
+					log.Warnf("skipped malformed audit entry: %v", perr)
+				}
+			}
+			if verify && len(parseErrs) > 0 {
+				return WrapCLIError(ExitCodeValidation, fmt.Errorf("audit chain verification failed: malformed audit entry: %v", parseErrs[0]))
+			}
 
 			if verify {
-				if verr := audit.Verify(entries); verr != nil {
+				if verr := query.VerifyError; verr != nil {
 					return WrapCLIError(ExitCodeValidation, fmt.Errorf("audit chain verification failed: %w", verr))
 				}
 			}
@@ -92,16 +104,16 @@ Examples:
 			if opts.JSONOutput {
 				data := map[string]interface{}{
 					"path":         relOrAbs(opts.RootDir, path),
-					"total":        len(entries),
-					"count":        len(filtered),
-					"entries":      filtered,
+					"total":        query.Total,
+					"count":        len(entries),
+					"entries":      entries,
 					"verified":     verify,
 					"parse_errors": len(parseErrs),
 				}
 				return respond(cmd, opts, true, "audit entries returned", data)
 			}
 
-			content, err := audit.Render(filtered, fmtKind, audit.RenderOptions{IncludeHashes: opts.Verbose})
+			content, err := audit.Render(entries, fmtKind, audit.RenderOptions{IncludeHashes: opts.Verbose})
 			if err != nil {
 				return WrapCLIError(ExitCodeValidation, err)
 			}
@@ -128,8 +140,8 @@ Examples:
 }
 
 // relOrAbs returns the path relative to root if possible, otherwise the absolute path.
-// Falling back to the absolute path keeps JSON consumers safe when the audit
-// file lives outside the workspace (e.g. a symlinked or remote-mounted log).
+// Falling back to the absolute path keeps JSON consumers deterministic for an
+// unusual caller-supplied path. Audit storage itself rejects symlink traversal.
 func relOrAbs(root, path string) string {
 	if rel, err := filepath.Rel(root, path); err == nil {
 		return rel

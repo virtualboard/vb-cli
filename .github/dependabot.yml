@@ -1,33 +1,25 @@
 version: 2
 updates:
-  # Enable version updates for Go modules
-  - package-ecosystem: "gomod"
-    directory: "/"
+  - package-ecosystem: gomod
+    directory: /
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
       time: "09:00"
-    open-pull-requests-limit: 10
-    reviewers:
-      - "@virtualboard/maintainers"
-    assignees:
-      - "@virtualboard/maintainers"
-    commit-message:
-      prefix: "deps"
-      include: "scope"
-
-  # Enable version updates for GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      timezone: Etc/UTC
+    groups:
+      go-dependencies:
+        patterns: ["*"]
     open-pull-requests-limit: 5
-    reviewers:
-      - "@virtualboard/maintainers"
-    assignees:
-      - "@virtualboard/maintainers"
-    commit-message:
-      prefix: "ci"
-      include: "scope"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Etc/UTC
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5

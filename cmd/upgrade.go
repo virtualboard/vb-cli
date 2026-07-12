@@ -1,14 +1,24 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"strings"
+	"io/fs"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/virtualboard/vb-cli/internal/upgrade"
 	"github.com/virtualboard/vb-cli/internal/version"
 )
+
+var runUpgrade = func(logger *logrus.Logger, currentVersion string) (*upgrade.UpgradeResult, error) {
+	return upgrade.NewUpgrader(logger).Upgrade(currentVersion)
+}
+
+var runUpgradeCheck = func(logger *logrus.Logger, currentVersion string) (*upgrade.UpgradeResult, error) {
+	return upgrade.NewUpgrader(logger).Check(currentVersion)
+}
 
 func newUpgradeCommand() *cobra.Command {
 	return &cobra.Command{
@@ -21,43 +31,37 @@ func newUpgradeCommand() *cobra.Command {
 				return err
 			}
 
-			// Create upgrader with logger from options
-			upgrader := upgrade.NewUpgrader(opts.Logger())
-
-			// Perform the upgrade
-			result, err := upgrader.Upgrade(version.Current)
+			runner := runUpgrade
+			if opts.DryRun {
+				runner = runUpgradeCheck
+			}
+			result, err := runner(opts.Logger(), version.Current)
 			if err != nil {
-				// Check if it's a permission error
-				if strings.Contains(err.Error(), "permission denied") {
-					errorMsg := "upgrade failed: permission denied. Please run with sudo to upgrade the binary"
-					if opts.JSONOutput {
-						payload := map[string]interface{}{
-							"error":           errorMsg,
-							"current_version": version.Current,
-							"suggestion":      "Run 'sudo vb upgrade' to upgrade the binary",
-						}
-						return respond(cmd, opts, false, "upgrade failed", payload)
-					}
-					return fmt.Errorf("%s", errorMsg)
+				exitCode := ExitCodeExternalCommand
+				if errors.Is(err, fs.ErrPermission) {
+					exitCode = ExitCodeFilesystem
 				}
-
 				if opts.JSONOutput {
 					payload := map[string]interface{}{
 						"error":           err.Error(),
 						"current_version": version.Current,
 					}
-					return respond(cmd, opts, false, "upgrade failed", payload)
+					if responseErr := respond(cmd, opts, false, "upgrade failed", payload); responseErr != nil {
+						return responseErr
+					}
 				}
-				return fmt.Errorf("upgrade failed: %w", err)
+				return WrapCLIError(exitCode, fmt.Errorf("upgrade failed: %w", err))
 			}
 
 			// Handle different upgrade results
 			if opts.JSONOutput {
 				payload := map[string]interface{}{
-					"message":         result.Message,
-					"current_version": result.CurrentVersion,
-					"latest_version":  result.LatestVersion,
-					"upgraded":        result.Upgraded,
+					"message":          result.Message,
+					"current_version":  result.CurrentVersion,
+					"latest_version":   result.LatestVersion,
+					"upgraded":         result.Upgraded,
+					"update_available": result.UpdateAvailable,
+					"dry_run":          opts.DryRun,
 				}
 				return respond(cmd, opts, true, "upgrade", payload)
 			}

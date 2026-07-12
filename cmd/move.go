@@ -35,7 +35,6 @@ func newMoveCommand() *cobra.Command {
 			if owner == "" && len(args) == 3 {
 				owner = args[2]
 			}
-
 			mgr := feature.NewManager(opts)
 			feat, summary, err := mgr.MoveFeature(id, status, owner)
 			if err != nil {
@@ -46,8 +45,10 @@ func newMoveCommand() *cobra.Command {
 					return WrapCLIError(ExitCodeInvalidTransition, err)
 				case errors.Is(err, feature.ErrDependencyBlocked):
 					return WrapCLIError(ExitCodeDependency, err)
+				case errors.Is(err, feature.ErrOwnershipConflict), errors.Is(err, feature.ErrLockConflict):
+					return WrapCLIError(ExitCodeLockConflict, err)
 				default:
-					return WrapCLIError(ExitCodeFilesystem, err)
+					return wrapMutationError(err)
 				}
 			}
 
@@ -58,8 +59,14 @@ func newMoveCommand() *cobra.Command {
 				"owner":   feat.FrontMatter.Owner,
 				"path":    rel,
 				"summary": summary,
+				"dry_run": opts.DryRun,
+				"written": !opts.DryRun,
 			}
-			if err := respond(cmd, opts, true, summary, data); err != nil {
+			message := summary
+			if opts.DryRun {
+				message = fmt.Sprintf("Dry-run: would move %s to %s", feat.FrontMatter.ID, feat.FrontMatter.Status)
+			}
+			if err := respond(cmd, opts, true, message, data); err != nil {
 				return err
 			}
 			return nil

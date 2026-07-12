@@ -2,15 +2,19 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/virtualboard/vb-cli/internal/config"
 	"github.com/virtualboard/vb-cli/internal/feature"
 	"github.com/virtualboard/vb-cli/internal/indexer"
+	"github.com/virtualboard/vb-cli/internal/lock"
 	"github.com/virtualboard/vb-cli/internal/testutil"
 	"github.com/virtualboard/vb-cli/internal/util"
 	"github.com/virtualboard/vb-cli/internal/validator"
@@ -47,7 +51,7 @@ func TestNewAndUpdateCommands(t *testing.T) {
 	updateCmd := newUpdateCommand()
 	updateCmd.SetOut(buf)
 	updateCmd.SetErr(buf)
-	updateCmd.SetArgs([]string{id, "--field", "owner=bob", "--body-section", "Summary=Updated"})
+	updateCmd.SetArgs([]string{id, "--field", "priority=P1", "--body-section", "Summary=Updated"})
 	if err := updateCmd.Execute(); err != nil {
 		t.Fatalf("update command failed: %v", err)
 	}
@@ -56,8 +60,97 @@ func TestNewAndUpdateCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load failed: %v", err)
 	}
-	if updated.FrontMatter.Owner != "bob" || !strings.Contains(updated.Body, "Updated") {
+	if updated.FrontMatter.Priority != "P1" || !strings.Contains(updated.Body, "Updated") {
 		t.Fatalf("expected updates applied")
+	}
+}
+
+func TestFeatureMutationDryRunsAreTruthfulAndWriteNothing(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	normalOpts, _ := setupOptions(t, fix, false, false, false)
+	mgr := feature.NewManager(normalOpts)
+	feat, err := mgr.CreateFeature("Dry Run Target", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalPath := feat.Path
+	original, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := mgr.Lifecycle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditBefore, err := os.ReadFile(lifecycle.AuditLogPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dryOpts, _ := setupOptions(t, fix, true, false, true)
+	dryOpts.Actor = normalOpts.Actor
+	config.SetCurrent(dryOpts)
+	run := func(command *cobra.Command, args ...string) map[string]interface{} {
+		t.Helper()
+		var output bytes.Buffer
+		command.SetOut(&output)
+		command.SetErr(&output)
+		command.SetArgs(args)
+		if err := command.Execute(); err != nil {
+			t.Fatalf("dry-run %s failed: %v\n%s", command.Use, err, output.String())
+		}
+		var payload struct {
+			Success bool                   `json:"success"`
+			Data    map[string]interface{} `json:"data"`
+		}
+		if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+			t.Fatalf("parse dry-run %s JSON: %v\n%s", command.Use, err, output.String())
+		}
+		if !payload.Success || payload.Data["dry_run"] != true {
+			t.Fatalf("untruthful dry-run %s payload: %+v", command.Use, payload)
+		}
+		return payload.Data
+	}
+
+	if data := run(newUpdateCommand(), feat.FrontMatter.ID, "--field", "priority=P0"); data["written"] != false {
+		t.Fatalf("update dry-run reported a write: %+v", data)
+	}
+	if data := run(newTemplateApplyCommand(), feat.FrontMatter.ID); data["written"] != false {
+		t.Fatalf("template dry-run reported a write: %+v", data)
+	}
+	if data := run(newMoveCommand(), feat.FrontMatter.ID, "in-progress", "--owner", normalOpts.Actor); data["written"] != false {
+		t.Fatalf("move dry-run reported a write: %+v", data)
+	}
+	if data := run(newLockCommand(), feat.FrontMatter.ID); data["written"] != false {
+		t.Fatalf("lock dry-run reported a write: %+v", data)
+	}
+	if data := run(newDeleteCommand(), feat.FrontMatter.ID); data["deleted"] != false {
+		t.Fatalf("delete dry-run reported deletion: %+v", data)
+	}
+	if data := run(newNewCommand(), "Another Dry Run"); data["written"] != false {
+		t.Fatalf("new dry-run reported a write: %+v", data)
+	}
+
+	after, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatalf("dry-run removed the feature: %v", err)
+	}
+	if !bytes.Equal(original, after) {
+		t.Fatal("feature mutation dry-run changed the feature bytes")
+	}
+	auditAfter, err := os.ReadFile(lifecycle.AuditLogPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(auditBefore, auditAfter) {
+		t.Fatal("feature mutation dry-run appended audit state")
+	}
+	if _, err := os.Stat(filepath.Join(mgr.LocksDir(), feat.FrontMatter.ID+".lock")); !os.IsNotExist(err) {
+		t.Fatalf("lock dry-run created a lock: %v", err)
+	}
+	features, err := mgr.List()
+	if err != nil || len(features) != 1 {
+		t.Fatalf("new dry-run changed feature count: %d, %v", len(features), err)
 	}
 }
 
@@ -179,7 +272,71 @@ func TestValidateCommand(t *testing.T) {
 	}
 }
 
-func TestValidateFixRenamesFiles(t *testing.T) {
+func TestValidateJSONFailureReturnsValidationExit(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, true, false, false)
+	mgr := feature.NewManager(opts)
+	seed := buildFeatureFile(t, fix, mgr, "FTR-5001", "backlog", "Invalid JSON Feature")
+	feat, err := mgr.LoadByID(seed.FrontMatter.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feat.FrontMatter.Updated = "not-a-date"
+	if err := mgr.Save(feat); err != nil {
+		t.Fatalf("save invalid feature: %v", err)
+	}
+
+	validateCmd := newValidateCommand()
+	validateCmd.SilenceErrors = true
+	validateCmd.SilenceUsage = true
+	validateCmd.SetOut(buf)
+	validateCmd.SetErr(buf)
+	validateCmd.SetArgs([]string{feat.FrontMatter.ID})
+	err = validateCmd.Execute()
+	if ExitCode(err) != ExitCodeValidation {
+		t.Fatalf("expected validation exit code, got %d (%v)", ExitCode(err), err)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("validation output is not JSON: %v\n%s", err, buf.String())
+	}
+	if success, ok := payload["success"].(bool); !ok || success {
+		t.Fatalf("expected success=false, got %#v", payload)
+	}
+}
+
+func TestIndexJSONDryRunReportsNotWritten(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, buf := setupOptions(t, fix, true, false, true)
+	mgr := feature.NewManager(opts)
+	buildFeatureFile(t, fix, mgr, "FTR-5002", "backlog", "Dry Run Index")
+
+	indexCmd := newIndexCommand()
+	indexCmd.SetOut(buf)
+	indexCmd.SetErr(buf)
+	if err := indexCmd.Execute(); err != nil {
+		t.Fatalf("index dry-run failed: %v", err)
+	}
+
+	var payload struct {
+		Data struct {
+			Written bool `json:"written"`
+			DryRun  bool `json:"dry_run"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("index output is not JSON: %v\n%s", err, buf.String())
+	}
+	if payload.Data.Written || !payload.Data.DryRun {
+		t.Fatalf("unexpected dry-run payload: %+v", payload.Data)
+	}
+	if _, err := os.Stat(filepath.Join(opts.RootDir, "features", "INDEX.md")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote index: %v", err)
+	}
+}
+
+func TestValidateFixPreservesImmutableFilename(t *testing.T) {
 	fix := testutil.NewFixture(t)
 	opts, buf := setupOptions(t, fix, false, false, false)
 	mgr := feature.NewManager(opts)
@@ -199,12 +356,6 @@ func TestValidateFixRenamesFiles(t *testing.T) {
 		t.Fatalf("save failed: %v", err)
 	}
 
-	// Verify the filename doesn't match the title yet
-	expectedNewFilename := fmt.Sprintf("%s-updated-title-name.md", id)
-	if filepath.Base(feat.Path) == expectedNewFilename {
-		t.Fatalf("filename should not match updated title yet")
-	}
-
 	// Run validate --fix
 	validateCmd := newValidateCommand()
 	validateCmd.SetOut(buf)
@@ -214,15 +365,8 @@ func TestValidateFixRenamesFiles(t *testing.T) {
 		t.Fatalf("validate --fix failed: %v", err)
 	}
 
-	// Verify old file is gone
-	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
-		t.Fatalf("old file should not exist after fix")
-	}
-
-	// Verify new file exists with correct name
-	newPath := filepath.Join(filepath.Dir(originalPath), expectedNewFilename)
-	if _, err := os.Stat(newPath); err != nil {
-		t.Fatalf("new file should exist at %s: %v", newPath, err)
+	if _, err := os.Stat(originalPath); err != nil {
+		t.Fatalf("validate --fix changed immutable file path: %v", err)
 	}
 
 	// Verify we can still load by ID
@@ -233,19 +377,25 @@ func TestValidateFixRenamesFiles(t *testing.T) {
 	if loaded.FrontMatter.Title != "Updated Title Name" {
 		t.Fatalf("title should be preserved")
 	}
-	if filepath.Base(loaded.Path) != expectedNewFilename {
-		t.Fatalf("loaded feature should have new filename")
+	if loaded.Path != originalPath {
+		t.Fatalf("loaded feature path changed from %s to %s", originalPath, loaded.Path)
 	}
 }
 
 func TestLockAndDeleteInteractive(t *testing.T) {
 	fix := testutil.NewFixture(t)
 	opts, buf := setupOptions(t, fix, false, false, false)
+	opts.Actor = "tester"
+	lockedFeature, err := feature.NewManager(opts).CreateFeature("Lock Command Feature", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockID := lockedFeature.FrontMatter.ID
 
 	lockCmd := newLockCommand()
 	lockCmd.SetOut(buf)
 	lockCmd.SetErr(buf)
-	lockCmd.SetArgs([]string{"FTR-LOCK", "--status", "--release"})
+	lockCmd.SetArgs([]string{lockID, "--status", "--release"})
 	if err := lockCmd.Execute(); err == nil {
 		t.Fatalf("expected error when combining status and release")
 	}
@@ -253,7 +403,7 @@ func TestLockAndDeleteInteractive(t *testing.T) {
 	lockCmd = newLockCommand()
 	lockCmd.SetOut(buf)
 	lockCmd.SetErr(buf)
-	lockCmd.SetArgs([]string{"FTR-LOCK", "--ttl", "0"})
+	lockCmd.SetArgs([]string{lockID, "--ttl", "0"})
 	if err := lockCmd.Execute(); err == nil {
 		t.Fatalf("expected error for non-positive ttl")
 	}
@@ -261,7 +411,7 @@ func TestLockAndDeleteInteractive(t *testing.T) {
 	lockCmd = newLockCommand()
 	lockCmd.SetOut(buf)
 	lockCmd.SetErr(buf)
-	lockCmd.SetArgs([]string{"FTR-LOCK", "--ttl", "1", "--owner", "tester"})
+	lockCmd.SetArgs([]string{lockID, "--ttl", "1", "--owner", "tester"})
 	if err := lockCmd.Execute(); err != nil {
 		t.Fatalf("lock acquire failed: %v", err)
 	}
@@ -269,7 +419,7 @@ func TestLockAndDeleteInteractive(t *testing.T) {
 	statusCmd := newLockCommand()
 	statusCmd.SetOut(buf)
 	statusCmd.SetErr(buf)
-	statusCmd.SetArgs([]string{"FTR-LOCK", "--status"})
+	statusCmd.SetArgs([]string{lockID, "--status"})
 	if err := statusCmd.Execute(); err != nil {
 		t.Fatalf("lock status failed: %v", err)
 	}
@@ -277,7 +427,11 @@ func TestLockAndDeleteInteractive(t *testing.T) {
 	releaseCmd := newLockCommand()
 	releaseCmd.SetOut(buf)
 	releaseCmd.SetErr(buf)
-	releaseCmd.SetArgs([]string{"FTR-LOCK", "--release"})
+	activeLock, err := lock.NewManager(opts).Load(lockID)
+	if err != nil || activeLock == nil {
+		t.Fatalf("load acquired lock: %v", err)
+	}
+	releaseCmd.SetArgs([]string{lockID, "--release", "--token", activeLock.Token})
 	if err := releaseCmd.Execute(); err != nil {
 		t.Fatalf("lock release failed: %v", err)
 	}
@@ -285,7 +439,7 @@ func TestLockAndDeleteInteractive(t *testing.T) {
 	statusCmd = newLockCommand()
 	statusCmd.SetOut(buf)
 	statusCmd.SetErr(buf)
-	statusCmd.SetArgs([]string{"FTR-LOCK", "--status"})
+	statusCmd.SetArgs([]string{lockID, "--status"})
 	if err := statusCmd.Execute(); err != nil {
 		t.Fatalf("lock status after release failed: %v", err)
 	}
@@ -312,6 +466,109 @@ func TestLockAndDeleteInteractive(t *testing.T) {
 	deleteCmd.SetArgs([]string{feat.FrontMatter.ID})
 	if err := deleteCmd.Execute(); err != nil {
 		t.Fatalf("delete command with confirmation failed: %v", err)
+	}
+}
+
+func TestLockCommandReturnsTokenOnlyOnAcquisition(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, _ := setupOptions(t, fix, true, false, false)
+	opts.Actor = "tester"
+	feat, err := feature.NewManager(opts).CreateFeature("Token Output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (map[string]interface{}, error) {
+		t.Helper()
+		var output bytes.Buffer
+		command := newLockCommand()
+		command.SetOut(&output)
+		command.SetErr(&output)
+		command.SetArgs(args)
+		err := command.Execute()
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Data map[string]interface{} `json:"data"`
+		}
+		if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+			t.Fatalf("parse lock JSON: %v\n%s", err, output.String())
+		}
+		return payload.Data, nil
+	}
+
+	acquired, err := run(feat.FrontMatter.ID, "--ttl", "5")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	token, ok := acquired["token"].(string)
+	if !ok || len(token) != 64 {
+		t.Fatalf("acquisition did not return an opaque token: %#v", acquired)
+	}
+	status, err := run(feat.FrontMatter.ID, "--status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if _, disclosed := status["token"]; disclosed {
+		t.Fatalf("status disclosed acquisition token: %#v", status)
+	}
+	if _, err := run(feat.FrontMatter.ID, "--release"); err == nil {
+		t.Fatal("token-bearing lock released by owner without exact token")
+	}
+	if _, err := run(feat.FrontMatter.ID, "--release", "--token", strings.Repeat("0", 64)); err == nil {
+		t.Fatal("release accepted a stale token")
+	}
+	if _, err := run(feat.FrontMatter.ID, "--release", "--token", token); err != nil {
+		t.Fatalf("exact-token release: %v", err)
+	}
+
+	opts.JSONOutput = false
+	var tokenOutput bytes.Buffer
+	tokenCommand := newLockCommand()
+	tokenCommand.SetOut(&tokenOutput)
+	tokenCommand.SetErr(&tokenOutput)
+	tokenCommand.SetArgs([]string{feat.FrontMatter.ID, "--token-only"})
+	if err := tokenCommand.Execute(); err != nil {
+		t.Fatalf("token-only acquire: %v", err)
+	}
+	plainToken := strings.TrimSpace(tokenOutput.String())
+	if len(plainToken) != 64 || strings.Trim(plainToken, "0123456789abcdef") != "" {
+		t.Fatalf("token-only output was not one lowercase token: %q", tokenOutput.String())
+	}
+	if err := lock.NewManager(opts).Release(feat.FrontMatter.ID, plainToken); err != nil {
+		t.Fatalf("release token-only acquisition: %v", err)
+	}
+}
+
+func TestLockReleaseWorksAfterFeatureDeletion(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts, output := setupOptions(t, fix, false, false, false)
+	opts.Actor = "deleter"
+	featureManager := feature.NewManager(opts)
+	created, err := featureManager.CreateFeature("Deleted While Locked", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockManager := lock.NewManager(opts)
+	info, err := lockManager.Acquire(created.FrontMatter.ID, opts.Actor, 5, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := featureManager.DeleteFeature(created.FrontMatter.ID); err != nil {
+		t.Fatalf("delete same-owner locked feature: %v", err)
+	}
+
+	release := newLockCommand()
+	release.SetOut(output)
+	release.SetErr(output)
+	release.SetArgs([]string{created.FrontMatter.ID, "--release", "--token", info.Token})
+	if err := release.Execute(); err != nil {
+		t.Fatalf("release orphaned lock: %v", err)
+	}
+	loaded, err := lockManager.Load(created.FrontMatter.ID)
+	if err != nil || loaded != nil {
+		t.Fatalf("orphaned lock remained after exact release: %#v, %v", loaded, err)
 	}
 }
 
@@ -629,8 +886,20 @@ applicability:
   - backend
 ---
 
-## Stack
-Technology details.`
+## Purpose
+Establish the supported technology choices for maintainable backend delivery.
+
+## Architecture Overview
+Services use explicit boundaries and versioned contracts between deployable components.
+
+## Languages, Frameworks & Tooling
+Go is the supported service language with reproducible pinned development tools.
+
+## Security & Compliance Considerations
+Dependencies are verified and sensitive configuration remains outside source control.
+
+## Operational Considerations
+Builds emit observable health signals and support deterministic rollback procedures.`
 
 	workspace := filepath.Join(fix.Root, ".virtualboard")
 	specsDir := filepath.Join(workspace, "specs")
@@ -805,16 +1074,23 @@ func buildFeatureFile(t *testing.T, fix *testutil.Fixture, mgr *feature.Manager,
 	feat := &feature.Feature{
 		Path: filepath.Join(statusDir, fmt.Sprintf("%s-%s.md", id, util.Slugify(title))),
 		FrontMatter: feature.FrontMatter{
-			ID:         id,
-			Title:      title,
-			Status:     status,
-			Owner:      "owner",
-			Priority:   "medium",
-			Complexity: "S",
-			Created:    "2023-01-01",
-			Updated:    "2023-01-01",
+			ID:     id,
+			Title:  title,
+			Status: status,
+			Owner:  "owner",
+			ImplementationOwner: func() string {
+				if status == "backlog" {
+					return "unassigned"
+				}
+				return "owner"
+			}(),
+			Priority:      "P2",
+			Complexity:    "S",
+			Created:       "2023-01-01",
+			Updated:       "2023-01-01",
+			StatusChanged: "2023-01-01",
 		},
-		Body: "## Summary\n\nSummary\n\n## Details\n\nDetails\n",
+		Body: canonicalFeatureBodyForTest(),
 	}
 	data, err := feat.Encode()
 	if err != nil {
@@ -827,4 +1103,30 @@ func buildFeatureFile(t *testing.T, fix *testutil.Fixture, mgr *feature.Manager,
 	}
 	fix.WriteFile(t, rel, data)
 	return feat
+}
+
+func canonicalFeatureBodyForTest() string {
+	content := map[string]string{
+		"Summary":                        "Concrete summary.",
+		"Problem Statement":              "Concrete problem statement.",
+		"Goals & Non-Goals":              "- Goal: exercise CLI validation.",
+		"User Stories":                   "- As a user, I can validate the feature.",
+		"Requirements":                   "### Functional\n- Validate the feature.",
+		"Acceptance Criteria (Testable)": "- [x] CLI validation has test coverage.",
+		"UI/UX Notes":                    "- CLI-only behavior.",
+		"Data & API":                     "- No data changes.",
+		"Rollout & Migration":            "- Test-only rollout.",
+		"Monitoring & Metrics":           "- Test result recorded.",
+		"Security & Compliance":          "- Body text is untrusted.",
+		"Implementation Notes":           "- Implemented and covered by focused tests.",
+		"Open Questions":                 "- None remain.",
+		"Links":                          "- FTR-0001 CLI test reference.",
+	}
+	var body strings.Builder
+	body.WriteString("<untrusted-content>\n\n")
+	for _, name := range feature.CanonicalSectionOrder() {
+		fmt.Fprintf(&body, "## %s\n%s\n\n", name, content[name])
+	}
+	body.WriteString("</untrusted-content>\n")
+	return body.String()
 }

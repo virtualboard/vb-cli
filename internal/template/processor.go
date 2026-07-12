@@ -2,10 +2,14 @@ package template
 
 import (
 	"fmt"
-	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/virtualboard/vb-cli/internal/feature"
+	"github.com/virtualboard/vb-cli/internal/util"
 )
+
+const maxFeatureTemplateBytes int64 = 4 << 20
 
 // Processor applies the canonical template to feature specs.
 type Processor struct {
@@ -17,14 +21,16 @@ type Processor struct {
 // NewProcessor loads the template file via the feature manager.
 func NewProcessor(mgr *feature.Manager) (*Processor, error) {
 	templatePath := mgr.TemplatePath()
-	// #nosec G304 -- template path is derived from validated configuration
-	data, err := os.ReadFile(templatePath)
+	data, _, err := util.ReadRegularFileWithin(filepath.Dir(templatePath), templatePath, maxFeatureTemplateBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read template: %w", err)
 	}
 	tmpl, err := feature.Parse(templatePath, data)
 	if err != nil {
 		return nil, err
+	}
+	if bodyErrors := feature.ValidateBodyForStatus(tmpl.Body, "backlog"); len(bodyErrors) > 0 {
+		return nil, fmt.Errorf("invalid canonical feature template body: %s", strings.Join(bodyErrors, "; "))
 	}
 	order, defaults := feature.ExtractSections(tmpl.Body)
 	return &Processor{
@@ -40,7 +46,9 @@ func (p *Processor) Apply(target *feature.Feature) error {
 		return fmt.Errorf("nil feature provided")
 	}
 
-	target.AddMissingSections(p.sectionOrder, p.sectionDefaults)
+	if err := target.AddMissingSections(p.sectionOrder, p.sectionDefaults); err != nil {
+		return fmt.Errorf("reconcile feature sections: %w", err)
+	}
 
 	if target.FrontMatter.Priority == "" {
 		target.FrontMatter.Priority = p.templateFeature.FrontMatter.Priority

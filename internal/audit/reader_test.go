@@ -90,6 +90,113 @@ func TestReadScanError(t *testing.T) {
 	}
 }
 
+func TestQueryFiltersWhileStreamingAndUsesBoundedTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	writeEntries(t, path, "one", "keep", "two", "keep", "three")
+
+	result, err := Query(path, Filter{Actions: []string{"keep"}, Limit: 1, Tail: true}, true)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if result.Total != 5 || len(result.Entries) != 1 || result.Entries[0].Action != "keep" {
+		t.Fatalf("unexpected streaming result: %+v", result)
+	}
+	if result.VerifyError != nil || len(result.ParseErrors) != 0 {
+		t.Fatalf("unexpected verification result: %+v", result)
+	}
+}
+
+func TestQueryRejectsUnboundedResultGrowth(t *testing.T) {
+	if _, err := Query(filepath.Join(t.TempDir(), "missing"), Filter{Limit: maxAuditMatches + 1}, false); err == nil {
+		t.Fatal("oversized requested limit was accepted")
+	}
+}
+
+func TestQueryUsesStrictJSONDecoding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	content := `{"timestamp":"2026-04-16T21:06:59Z","action":"lock","actor":"actor","prev_hash":"","entry_hash":"hash","unknown":true}
+{"timestamp":"2026-04-16T21:07:00Z","action":"unlock","actor":"actor","prev_hash":"","entry_hash":"hash"}{}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Query(path, Filter{}, false)
+	if err != nil {
+		t.Fatalf("strict malformed lines should be reported, not abort the scan: %v", err)
+	}
+	if len(result.Entries) != 0 || len(result.ParseErrors) != 2 {
+		t.Fatalf("strict parse result = entries %d errors %d", len(result.Entries), len(result.ParseErrors))
+	}
+}
+
+func TestQueryRejectsTruncatedFinalLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if err := os.WriteFile(path, []byte(`{"timestamp":"2026-04-16T21:06:59Z","action":"lock","actor":"actor"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Query(path, Filter{}, false); err == nil || !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("truncated final line error = %v", err)
+	}
+}
+
+func TestQueryDetectsAuditPathReplacementAfterScan(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	writeEntries(t, path, "one", "two")
+	detached := path + ".detached"
+	replacement := []byte("replacement remains untouched\n")
+	_, err := queryWithHooks(path, Filter{}, false, &queryTestHooks{
+		beforeFinalVerify: func() {
+			if err := os.Rename(path, detached); err != nil {
+				t.Skipf("cannot replace an open audit path on this platform: %v", err)
+			}
+			if err := os.WriteFile(path, replacement, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+	})
+	if err == nil {
+		t.Fatal("Query accepted an audit path replacement")
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil || string(data) != string(replacement) {
+		t.Fatalf("replacement changed during query: %q, %v", data, readErr)
+	}
+}
+
+func TestQueryDetectsAuditDirectoryReplacementAfterScan(t *testing.T) {
+	base := t.TempDir()
+	directory := filepath.Join(base, "workspace")
+	path := filepath.Join(directory, "audit.jsonl")
+	writeEntries(t, path, "one", "two")
+	moved := filepath.Join(base, "workspace-moved")
+	_, err := queryWithHooks(path, Filter{}, false, &queryTestHooks{
+		beforeFinalVerify: func() {
+			if err := os.Rename(directory, moved); err != nil {
+				t.Skipf("cannot replace an open audit directory on this platform: %v", err)
+			}
+			if err := os.Mkdir(directory, 0o750); err != nil {
+				t.Fatal(err)
+			}
+		},
+	})
+	if err == nil {
+		t.Fatal("Query accepted an audit directory identity replacement")
+	}
+}
+
+func TestQueryRejectsHardlinkedAuditFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	writeEntries(t, path, "one")
+	if err := os.Link(path, path+".alias"); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	if _, err := Query(path, Filter{}, false); err == nil {
+		t.Fatal("Query accepted a multi-hardlink audit file")
+	}
+}
+
 func TestParseTime(t *testing.T) {
 	if tp, err := ParseTime(""); err != nil || tp != nil {
 		t.Fatalf("empty string should yield nil/nil, got %v/%v", tp, err)
@@ -178,6 +285,38 @@ func TestVerifyClean(t *testing.T) {
 	entries := writeEntries(t, path, "create", "move", "delete")
 	if err := Verify(entries); err != nil {
 		t.Fatalf("Verify on intact chain failed: %v", err)
+	}
+}
+
+func TestVerifyLegacyV1Compatibility(t *testing.T) {
+	first := Entry{
+		Timestamp: "2024-01-01T00:00:00Z",
+		Action:    "create",
+		Actor:     "legacy",
+	}
+	first.EntryHash = hashEntryV1(first)
+	second := Entry{
+		HashVersion: legacyHashVersion,
+		Timestamp:   "2024-01-01T00:01:00Z",
+		Action:      "move",
+		Actor:       "legacy",
+		PrevHash:    first.EntryHash,
+	}
+	second.EntryHash = hashEntryV1(second)
+	if err := Verify([]Entry{first, second}); err != nil {
+		t.Fatalf("legacy v1 chain no longer verifies: %v", err)
+	}
+}
+
+func TestVerifyRejectsUnknownHashVersion(t *testing.T) {
+	entry := Entry{HashVersion: "v99", EntryHash: strings.Repeat("0", 64)}
+	err := Verify([]Entry{entry})
+	var verifyErr *VerifyError
+	if !errors.As(err, &verifyErr) {
+		t.Fatalf("expected VerifyError, got %v", err)
+	}
+	if verifyErr.Kind != "hash_version" {
+		t.Fatalf("expected hash_version failure, got %+v", verifyErr)
 	}
 }
 

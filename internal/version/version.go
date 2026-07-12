@@ -7,7 +7,19 @@ import (
 )
 
 // Current defines the CLI semantic version following https://semver.org/.
-const Current = "v0.9.0"
+const Current = "v0.10.0"
+
+// MarkerPrefix, MarkerSuffix, and BinaryMarker place an exactly framed,
+// non-executable version marker in every vb binary. The upgrader reads it from
+// the retained verified file handle, avoiding execution of downloaded bytes
+// during preflight. The suffix prevents v1.2.3 from matching v1.2.30 or a
+// prerelease marker that merely shares that prefix.
+const (
+	MarkerPrefix = "virtualboard-vb-version:"
+	MarkerSuffix = ":virtualboard-vb-version-end"
+)
+
+var BinaryMarker = MarkerPrefix + Current + MarkerSuffix
 
 // Parsed represents a parsed semantic version.
 type Parsed struct {

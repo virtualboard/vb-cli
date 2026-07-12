@@ -1,19 +1,25 @@
 package upgrade
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/google/go-github/v60/github"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/virtualboard/vb-cli/internal/version"
 )
 
 func TestNewUpgrader(t *testing.T) {
@@ -28,40 +34,12 @@ func TestNewUpgrader(t *testing.T) {
 func TestGetBinaryName(t *testing.T) {
 	upgrader := NewUpgrader(logrus.New())
 
-	expectedOS := runtime.GOOS
-	expectedArch := runtime.GOARCH
-
-	// Map Go architecture names to expected naming conventions
-	switch expectedArch {
-	case "amd64":
-		expectedArch = "amd64"
-	case "386":
-		expectedArch = "386"
-	case "arm64":
-		expectedArch = "arm64"
-	case "arm":
-		expectedArch = "arm"
-	default:
-		expectedArch = "amd64"
+	expectedName, err := binaryNameFor(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		assert.Empty(t, upgrader.GetBinaryName())
+		return
 	}
-
-	// Map Go OS names to GitHub Actions release naming conventions
-	var expectedName string
-	switch expectedOS {
-	case "darwin":
-		// macOS uses "macos" in the release asset names
-		expectedName = fmt.Sprintf("vb-macos-%s", expectedArch)
-	case "linux":
-		expectedName = fmt.Sprintf("vb-linux-%s", expectedArch)
-	case "windows":
-		expectedName = fmt.Sprintf("vb-windows-%s.exe", expectedArch)
-	default:
-		// Fallback to the old format for unknown OS
-		expectedName = fmt.Sprintf("vb_%s_%s", expectedOS, expectedArch)
-	}
-
-	actualName := upgrader.GetBinaryName()
-	assert.Equal(t, expectedName, actualName)
+	assert.Equal(t, expectedName, upgrader.GetBinaryName())
 }
 
 func TestCheckForUpdate(t *testing.T) {
@@ -133,7 +111,11 @@ func TestCopyFile(t *testing.T) {
 	// Verify file permissions
 	info, err := os.Stat(dstFile)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0644), info.Mode().Perm())
+	if runtime.GOOS == "windows" {
+		assert.NotZero(t, info.Mode().Perm()&0o200)
+	} else {
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	}
 }
 
 func TestCopyFileSourceNotFound(t *testing.T) {
@@ -382,6 +364,8 @@ func TestUpgradeDownloadErrorWithMock(t *testing.T) {
 }
 
 func TestParseChecksums(t *testing.T) {
+	hashA := strings.Repeat("a", 64)
+	hashB := strings.Repeat("b", 64)
 	tests := []struct {
 		name    string
 		input   string
@@ -390,25 +374,25 @@ func TestParseChecksums(t *testing.T) {
 	}{
 		{
 			name:  "standard sha256sum output",
-			input: "abc123  ./vb-macos-arm64\ndef456  ./vb-linux-amd64\n",
+			input: fmt.Sprintf("%s  ./vb-macos-arm64\n%s  ./vb-linux-amd64\n", hashA, hashB),
 			want: map[string]string{
-				"vb-macos-arm64": "abc123",
-				"vb-linux-amd64": "def456",
+				"vb-macos-arm64": hashA,
+				"vb-linux-amd64": hashB,
 			},
 		},
 		{
 			name:  "without dot-slash prefix",
-			input: "abc123  vb-macos-arm64\n",
+			input: fmt.Sprintf("%s  vb-macos-arm64\n", hashA),
 			want: map[string]string{
-				"vb-macos-arm64": "abc123",
+				"vb-macos-arm64": hashA,
 			},
 		},
 		{
 			name:  "with blank lines",
-			input: "abc123  ./vb-macos-arm64\n\ndef456  ./vb-linux-amd64\n\n",
+			input: fmt.Sprintf("%s  ./vb-macos-arm64\n\n%s  ./vb-linux-amd64\n\n", hashA, hashB),
 			want: map[string]string{
-				"vb-macos-arm64": "abc123",
-				"vb-linux-amd64": "def456",
+				"vb-macos-arm64": hashA,
+				"vb-linux-amd64": hashB,
 			},
 		},
 		{
@@ -469,12 +453,12 @@ func TestDownloadBinaryWithChecksum(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 	upgrader := NewUpgrader(logger)
-	binaryName := upgrader.GetBinaryName()
+	binaryName := requireSupportedUpgradePlatform(t)
 
 	checksumContent := fmt.Sprintf("%s  ./%s\n", binaryHash, binaryName)
 
 	// Create a test HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/binary":
 			_, _ = w.Write(binaryContent)
@@ -503,14 +487,19 @@ func TestDownloadBinaryWithChecksum(t *testing.T) {
 		},
 	}
 
-	path, err := upgrader.DownloadBinary(release)
+	download, err := upgrader.DownloadBinary(release)
 	require.NoError(t, err)
-	defer os.Remove(path)
+	defer download.Close()
 
-	// Verify the file was downloaded
-	info, err := os.Stat(path)
+	// Verify the exact retained source handle contains the downloaded bytes.
+	info, err := download.file.Stat()
 	require.NoError(t, err)
 	assert.True(t, info.Size() > 0)
+	if runtime.GOOS != "windows" {
+		if _, err := os.Lstat(download.file.Name()); !os.IsNotExist(err) {
+			t.Fatalf("verified download retained a swappable pathname: %v", err)
+		}
+	}
 }
 
 func TestDownloadBinaryChecksumMismatch(t *testing.T) {
@@ -519,12 +508,12 @@ func TestDownloadBinaryChecksumMismatch(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 	upgrader := NewUpgrader(logger)
-	binaryName := upgrader.GetBinaryName()
+	binaryName := requireSupportedUpgradePlatform(t)
 
 	// Provide a wrong checksum
 	checksumContent := fmt.Sprintf("0000000000000000000000000000000000000000000000000000000000000000  ./%s\n", binaryName)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/binary":
 			_, _ = w.Write(binaryContent)
@@ -561,9 +550,9 @@ func TestDownloadBinaryMissingChecksums(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 	upgrader := NewUpgrader(logger)
-	binaryName := upgrader.GetBinaryName()
+	binaryName := requireSupportedUpgradePlatform(t)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("binary data"))
 	}))
 	defer server.Close()
@@ -590,7 +579,7 @@ func TestDownloadChecksumsFileHTTPError(t *testing.T) {
 	logger := logrus.New()
 	upgrader := NewUpgrader(logger)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -618,12 +607,12 @@ func TestDownloadBinaryChecksumMissingEntry(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 	upgrader := NewUpgrader(logger)
-	binaryName := upgrader.GetBinaryName()
+	binaryName := requireSupportedUpgradePlatform(t)
 
 	// Checksums file exists but doesn't have an entry for our binary
-	checksumContent := "abc123  ./some-other-binary\n"
+	checksumContent := strings.Repeat("a", 64) + "  ./some-other-binary\n"
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/binary":
 			_, _ = w.Write(binaryContent)
@@ -654,4 +643,402 @@ func TestDownloadBinaryChecksumMissingEntry(t *testing.T) {
 	_, err := upgrader.DownloadBinary(release)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no checksum found")
+}
+
+func requireSupportedUpgradePlatform(t *testing.T) string {
+	t.Helper()
+	name, err := binaryNameFor(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Skipf("in-place upgrade is unsupported on this runtime: %v", err)
+	}
+	return name
+}
+
+func TestBinaryNameForRejectsUnsupportedPlatforms(t *testing.T) {
+	valid := map[[2]string]string{
+		{"darwin", "amd64"}: "vb-macos-amd64",
+		{"darwin", "arm64"}: "vb-macos-arm64",
+		{"linux", "amd64"}:  "vb-linux-amd64",
+		{"linux", "arm64"}:  "vb-linux-arm64",
+	}
+	for platform, expected := range valid {
+		name, err := binaryNameFor(platform[0], platform[1])
+		if err != nil || name != expected {
+			t.Fatalf("binaryNameFor(%q, %q) = %q, %v", platform[0], platform[1], name, err)
+		}
+	}
+	for _, platform := range [][2]string{{"linux", "386"}, {"windows", "amd64"}, {"windows", "arm64"}, {"freebsd", "amd64"}} {
+		if name, err := binaryNameFor(platform[0], platform[1]); err == nil || name != "" {
+			t.Fatalf("unsupported platform %v returned %q, %v", platform, name, err)
+		}
+	}
+}
+
+func TestReleaseAndAssetValidationIsStrict(t *testing.T) {
+	for _, release := range []*github.RepositoryRelease{
+		nil,
+		{TagName: github.String("")},
+		{TagName: github.String("1.2.3")},
+		{TagName: github.String("v1.2")},
+		{TagName: github.String(" v1.2.3 ")},
+		{TagName: github.String("v1.2.3"), Draft: github.Bool(true)},
+		{TagName: github.String("v1.2.3-rc.1"), Prerelease: github.Bool(true)},
+		{TagName: github.String("v1.2.3-rc.1"), Prerelease: github.Bool(false)},
+	} {
+		if err := validateRelease(release); err == nil {
+			t.Fatalf("validateRelease accepted %+v", release)
+		}
+	}
+	valid := &github.RepositoryRelease{TagName: github.String("v1.2.3")}
+	if err := validateRelease(valid); err != nil {
+		t.Fatal(err)
+	}
+
+	valid.Assets = []*github.ReleaseAsset{
+		{Name: github.String("checksums.txt"), BrowserDownloadURL: github.String("https://example.com/checksums.txt")},
+		{Name: github.String("checksums.txt"), BrowserDownloadURL: github.String("https://example.com/duplicate")},
+	}
+	if _, err := uniqueAsset(valid, "checksums.txt", maxChecksumBytes); err == nil {
+		t.Fatal("duplicate release assets were accepted")
+	}
+	valid.Assets = []*github.ReleaseAsset{{
+		Name:               github.String("checksums.txt"),
+		BrowserDownloadURL: github.String("http://example.com/checksums.txt"),
+	}}
+	if _, err := uniqueAsset(valid, "checksums.txt", maxChecksumBytes); err == nil {
+		t.Fatal("insecure release asset URL was accepted")
+	}
+	valid.Assets[0].BrowserDownloadURL = github.String("https://user:secret@example.com/checksums.txt")
+	if _, err := uniqueAsset(valid, "checksums.txt", maxChecksumBytes); err == nil {
+		t.Fatal("credential-bearing release asset URL was accepted")
+	}
+	valid.Assets[0].BrowserDownloadURL = github.String("https://example.com/checksums.txt")
+	valid.Assets[0].Size = github.Int(maxChecksumBytes + 1)
+	if _, err := uniqueAsset(valid, "checksums.txt", maxChecksumBytes); err == nil {
+		t.Fatal("oversized release asset metadata was accepted")
+	}
+}
+
+func TestParseChecksumsRejectsMalformedAndDuplicateEntries(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	invalid := []string{
+		"abc123  vb-linux-amd64\n",
+		hash + " vb-linux-amd64\n",
+		hash + "  ../vb-linux-amd64\n",
+		hash + "  vb-linux-amd64\n" + hash + "  vb-linux-amd64\n",
+		hash + "  vb-linux-amd64\nmalformed\n",
+	}
+	for _, input := range invalid {
+		if _, err := parseChecksums([]byte(input)); err == nil {
+			t.Fatalf("parseChecksums accepted %q", input)
+		}
+	}
+	upper := strings.ToUpper(hash) + "  vb-linux-amd64\n"
+	parsed, err := parseChecksums([]byte(upper))
+	if err != nil || parsed["vb-linux-amd64"] != hash {
+		t.Fatalf("uppercase checksum was not normalized: %v, %v", parsed, err)
+	}
+}
+
+func TestNewUpgraderUsesBoundedClientsAndGitHubToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "test-secret-token")
+	var logs bytes.Buffer
+	logger := logrus.New()
+	logger.SetOutput(&logs)
+	upgrader := NewUpgrader(logger)
+	assetClient, ok := upgrader.httpClient.(*http.Client)
+	if !ok || assetClient.Timeout != requestTimeout {
+		t.Fatalf("asset client is not bounded: %#v", upgrader.httpClient)
+	}
+
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0"}`))
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrader.client.BaseURL = baseURL
+	upgrader.client.UploadURL = baseURL
+	if _, newer, err := upgrader.CheckForUpdate("v0.1.0"); err != nil || !newer {
+		t.Fatalf("authenticated update check failed: newer=%v err=%v", newer, err)
+	}
+	if authorization != "Bearer test-secret-token" {
+		t.Fatalf("GitHub API authorization = %q", authorization)
+	}
+	if strings.Contains(logs.String(), "test-secret-token") {
+		t.Fatal("GITHUB_TOKEN was written to updater logs")
+	}
+}
+
+func TestAPIAndAssetResponsesAreBounded(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	upgrader := NewUpgrader(logrus.New())
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(maxAPIResponseBytes+1))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer apiServer.Close()
+	baseURL, err := url.Parse(apiServer.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrader.client.BaseURL = baseURL
+	upgrader.client.UploadURL = baseURL
+	if _, _, err := upgrader.CheckForUpdate("v0.1.0"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized API response error = %v", err)
+	}
+
+	assetServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(maxChecksumBytes+1))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer assetServer.Close()
+	upgrader.httpClient = assetServer.Client()
+	asset := &github.ReleaseAsset{BrowserDownloadURL: github.String(assetServer.URL + "/checksums.txt")}
+	if _, err := upgrader.downloadAssetBytes(asset, maxChecksumBytes); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized asset response error = %v", err)
+	}
+}
+
+func TestReplaceBinaryAtIsAtomicAndPreservesMode(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	download := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(download, []byte("new-binary"), 0o700))
+	verified := openTestVerifiedDownload(t, download, "")
+	if runtime.GOOS == "windows" {
+		err := replaceBinaryAt(current, verified)
+		if err == nil || !strings.Contains(err.Error(), "unsupported on Windows") {
+			t.Fatalf("Windows self-replacement error = %v", err)
+		}
+		data, readErr := os.ReadFile(current)
+		if readErr != nil || string(data) != "old-binary" {
+			t.Fatalf("Windows self-replacement changed current binary: %q, %v", data, readErr)
+		}
+		return
+	}
+	if err := replaceBinaryAt(current, verified); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(current)
+	require.NoError(t, err)
+	if string(data) != "new-binary" {
+		t.Fatalf("replacement content = %q", data)
+	}
+	info, err := os.Stat(current)
+	require.NoError(t, err)
+	if info.Mode().Perm() != 0o750 {
+		t.Fatalf("replacement mode = %o", info.Mode().Perm())
+	}
+	if data, err := os.ReadFile(download); err != nil || string(data) != "new-binary" {
+		t.Fatalf("replaceBinaryAt unexpectedly consumed its source: %q, %v", data, err)
+	}
+}
+
+func TestReplaceBinaryAtActivationFailurePreservesCurrentBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	download := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(download, []byte("new-binary"), 0o700))
+	verified := openTestVerifiedDownload(t, download, "")
+	originalRename := renameBinary
+	renameBinary = func(string, string) error { return errors.New("injected activation failure") }
+	t.Cleanup(func() { renameBinary = originalRename })
+	if err := replaceBinaryAt(current, verified); err == nil || !strings.Contains(err.Error(), "current binary preserved") {
+		t.Fatalf("activation failure = %v", err)
+	}
+	data, err := os.ReadFile(current)
+	require.NoError(t, err)
+	if string(data) != "old-binary" {
+		t.Fatalf("preserved content = %q", data)
+	}
+	info, err := os.Stat(current)
+	require.NoError(t, err)
+	if info.Mode().Perm() != 0o750 {
+		t.Fatalf("preserved mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestReplaceBinaryAtRejectsVerifiedSourceMutation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	source := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(source, []byte("verified-binary"), 0o700))
+	verified := openTestVerifiedDownload(t, source, "")
+	require.NoError(t, os.WriteFile(source, []byte("swapped-binary"), 0o700))
+
+	if err := replaceBinaryAt(current, verified); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("mutated verified source error = %v", err)
+	}
+	data, err := os.ReadFile(current)
+	require.NoError(t, err)
+	if string(data) != "old-binary" {
+		t.Fatalf("source mutation replaced current binary: %q", data)
+	}
+}
+
+func TestReplaceBinaryAtRequiresReleaseVersionMatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	source := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(source, []byte("mock-binary\x00"+version.MarkerPrefix+"v9.9.9"+version.MarkerSuffix+"\x00"), 0o700))
+	verified := openTestVerifiedDownload(t, source, "v1.2.3")
+
+	if err := replaceBinaryAt(current, verified); err == nil || !strings.Contains(err.Error(), "version mismatch") {
+		t.Fatalf("version mismatch error = %v", err)
+	}
+	data, err := os.ReadFile(current)
+	require.NoError(t, err)
+	if string(data) != "old-binary" {
+		t.Fatalf("version mismatch replaced current binary: %q", data)
+	}
+}
+
+func TestReplaceBinaryAtRejectsVersionMarkerPrefixCollision(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	source := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(source, []byte("mock-binary\x00"+version.MarkerPrefix+"v1.2.30"+version.MarkerSuffix+"\x00"), 0o700))
+	verified := openTestVerifiedDownload(t, source, "v1.2.3")
+
+	err := replaceBinaryAt(current, verified)
+	if err == nil || !strings.Contains(err.Error(), "version mismatch") {
+		t.Fatalf("prefix-collision error = %v", err)
+	}
+	data, readErr := os.ReadFile(current)
+	require.NoError(t, readErr)
+	if string(data) != "old-binary" {
+		t.Fatalf("prefix collision replaced current binary: %q", data)
+	}
+}
+
+func TestReplaceBinaryAtAcceptsMatchingReleaseVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	source := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(source, []byte("mock-binary\x00"+version.MarkerPrefix+"v1.2.3"+version.MarkerSuffix+"\x00"), 0o700))
+	verified := openTestVerifiedDownload(t, source, "v1.2.3")
+
+	if err := replaceBinaryAt(current, verified); err != nil {
+		t.Fatalf("matching version replacement: %v", err)
+	}
+	data, err := os.ReadFile(current)
+	require.NoError(t, err)
+	if !bytes.Contains(data, []byte("v1.2.3")) {
+		t.Fatalf("matching replacement content = %q", data)
+	}
+}
+
+func TestReplaceBinaryAtRejectsVersionProbePathSwapWithoutExecution(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	source := filepath.Join(dir, "download")
+	marker := filepath.Join(dir, "attacker-executed")
+	t.Setenv("VB_ATTACK_MARKER", marker)
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(source, []byte("mock-binary\x00"+version.MarkerPrefix+"v1.2.3"+version.MarkerSuffix+"\x00"), 0o700))
+	verified := openTestVerifiedDownload(t, source, "v1.2.3")
+	verified.beforeVersionProbe = func(stagePath string) {
+		detached := stagePath + ".verified"
+		if err := os.Rename(stagePath, detached); err != nil {
+			t.Errorf("detach verified stage: %v", err)
+			return
+		}
+		attacker := "#!/bin/sh\nprintf attacked > \"$VB_ATTACK_MARKER\"\nprintf 'v1.2.3\\n'\n"
+		if err := os.WriteFile(stagePath, []byte(attacker), 0o750); err != nil {
+			t.Errorf("publish attacker stage: %v", err)
+		}
+	}
+
+	err := replaceBinaryAt(current, verified)
+	if err == nil || !strings.Contains(err.Error(), "stage path changed") {
+		t.Fatalf("stage swap error = %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("path-swapped binary executed during version probe: %v", err)
+	}
+	data, readErr := os.ReadFile(current)
+	require.NoError(t, readErr)
+	if string(data) != "old-binary" {
+		t.Fatalf("stage swap replaced current binary: %q", data)
+	}
+}
+
+func TestReplaceBinaryAtRestoresCurrentAfterAmbiguousActivation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows self-replacement is intentionally unsupported")
+	}
+	dir := t.TempDir()
+	current := filepath.Join(dir, "vb")
+	source := filepath.Join(dir, "download")
+	require.NoError(t, os.WriteFile(current, []byte("old-binary"), 0o750))
+	require.NoError(t, os.WriteFile(source, []byte("mock-binary\x00"+version.MarkerPrefix+"v1.2.3"+version.MarkerSuffix+"\x00"), 0o700))
+	verified := openTestVerifiedDownload(t, source, "v1.2.3")
+	verified.afterActivation = func(currentPath string) {
+		if err := os.Rename(currentPath, currentPath+".detached-verified"); err != nil {
+			t.Errorf("detach activated binary: %v", err)
+			return
+		}
+		if err := os.WriteFile(currentPath, []byte("attacker-binary"), 0o750); err != nil {
+			t.Errorf("publish attacker binary: %v", err)
+		}
+	}
+
+	err := replaceBinaryAt(current, verified)
+	if err == nil || !strings.Contains(err.Error(), "previous binary restored") {
+		t.Fatalf("ambiguous activation error = %v", err)
+	}
+	data, readErr := os.ReadFile(current)
+	require.NoError(t, readErr)
+	if string(data) != "old-binary" {
+		t.Fatalf("ambiguous activation did not restore current binary: %q", data)
+	}
+}
+
+func openTestVerifiedDownload(t *testing.T, path, releaseTag string) *VerifiedDownload {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	digest := sha256.Sum256(data)
+	file, err := os.Open(path)
+	require.NoError(t, err)
+	info, err := file.Stat()
+	require.NoError(t, err)
+	download := &VerifiedDownload{
+		file:         file,
+		expectedHash: fmt.Sprintf("%x", digest[:]),
+		releaseTag:   releaseTag,
+		size:         info.Size(),
+	}
+	t.Cleanup(func() { _ = download.Close() })
+	return download
 }

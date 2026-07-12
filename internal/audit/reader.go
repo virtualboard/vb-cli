@@ -2,16 +2,50 @@ package audit
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 )
 
+func decodeEntry(data []byte) (Entry, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' {
+		return Entry{}, errors.New("audit entry must be exactly one JSON object")
+	}
+	var entry Entry
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&entry); err != nil {
+		return Entry{}, err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return Entry{}, errors.New("trailing JSON value")
+		}
+		return Entry{}, fmt.Errorf("trailing data: %w", err)
+	}
+	return entry, nil
+}
+
 // maxLineBytes caps a single audit line at 1 MiB. The default bufio.Scanner
 // buffer of 64 KiB would refuse longer lines, and details strings can grow.
 const maxLineBytes = 1 << 20
+
+const (
+	maxAuditBytes       = 256 << 20
+	maxAuditLines       = 1_000_000
+	maxAuditMatches     = 100_000
+	maxAuditParseErrors = 1_024
+)
+
+// MaxQueryEntries is the largest caller-requested retained audit result.
+const MaxQueryEntries = maxAuditMatches
 
 // Read parses an audit JSONL file into a slice of Entry values.
 //
@@ -23,37 +57,171 @@ const maxLineBytes = 1 << 20
 //     slice but do NOT abort the read. Callers may surface the errors as
 //     warnings without losing the entries that did parse.
 func Read(path string) (entries []Entry, parseErrors []ParseError, err error) {
-	// #nosec G304 -- path is constructed from controlled RootDir configuration
-	f, err := os.Open(path)
+	result, err := Query(path, Filter{}, false)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil, nil
-		}
-		return nil, nil, fmt.Errorf("open audit log: %w", err)
+		return nil, nil, err
 	}
-	defer f.Close()
+	return result.Entries, result.ParseErrors, nil
+}
 
-	scanner := bufio.NewScanner(f)
+// Query streams an audit log, applies filters before retaining entries, and
+// optionally verifies the hash chain without first materializing the whole
+// file. Hard aggregate bounds prevent an attacker-controlled or accidentally
+// enormous log from exhausting memory. Tail queries use a fixed-size ring.
+func Query(path string, filter Filter, verify bool) (QueryResult, error) {
+	return queryWithHooks(path, filter, verify, nil)
+}
+
+type queryTestHooks struct {
+	afterOpen         func()
+	beforeFinalVerify func()
+}
+
+func queryWithHooks(path string, filter Filter, verify bool, hooks *queryTestHooks) (result QueryResult, retErr error) {
+	if filter.Limit < 0 || filter.Limit > maxAuditMatches {
+		return result, fmt.Errorf("audit limit must be between 0 and %d", maxAuditMatches)
+	}
+	scope, err := openAuditScope(path, false)
+	if err != nil {
+		return result, fmt.Errorf("open audit storage: %w", err)
+	}
+	if scope == nil {
+		return result, nil
+	}
+	defer scope.close()
+	opened, err := scope.openRegular(scope.base, os.O_RDONLY, false)
+	if err != nil {
+		return result, fmt.Errorf("open audit log: %w", err)
+	}
+	if opened == nil {
+		return result, nil
+	}
+	defer func() {
+		if err := opened.close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close audit log: %w", err))
+		}
+	}()
+	if err := scope.verifyOpenFile(opened); err != nil {
+		return result, fmt.Errorf("verify audit log before scan: %w", err)
+	}
+	initialInfo, err := opened.file.Stat()
+	if err != nil {
+		return result, err
+	}
+	if initialInfo.Size() > maxAuditBytes {
+		return result, fmt.Errorf("audit log exceeds safe scan bound (%d bytes)", maxAuditBytes)
+	}
+	if initialInfo.Size() > 0 {
+		var terminator [1]byte
+		if _, err := opened.file.ReadAt(terminator[:], initialInfo.Size()-1); err != nil {
+			return result, fmt.Errorf("inspect audit log terminator: %w", err)
+		}
+		if terminator[0] != '\n' {
+			return result, errors.New("audit log has a truncated final line")
+		}
+	}
+	if hooks != nil && hooks.afterOpen != nil {
+		hooks.afterOpen()
+	}
+	if err := scope.verifyOpenFile(opened); err != nil {
+		return result, fmt.Errorf("verify audit log after opening: %w", err)
+	}
+
+	// Scan only the size observed above. A concurrent well-formed append may
+	// grow the same inode, but it belongs to the next query snapshot.
+	scanner := bufio.NewScanner(io.LimitReader(opened.file, initialInfo.Size()))
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 
 	lineNum := 0
+	bytesRead := int64(0)
+	previousHash := ""
+	verifiedIndex := 0
+	tailStart := 0
 	for scanner.Scan() {
 		lineNum++
 		raw := scanner.Bytes()
+		bytesRead += int64(len(raw)) + 1
+		if lineNum > maxAuditLines || bytesRead > maxAuditBytes {
+			return result, fmt.Errorf("audit log exceeds safe scan bounds (%d lines or %d bytes)", maxAuditLines, maxAuditBytes)
+		}
 		if len(raw) == 0 {
 			continue
 		}
-		var entry Entry
-		if jerr := json.Unmarshal(raw, &entry); jerr != nil {
-			parseErrors = append(parseErrors, ParseError{Line: lineNum, Err: jerr})
+		entry, jerr := decodeEntry(raw)
+		if jerr != nil {
+			if len(result.ParseErrors) >= maxAuditParseErrors {
+				return result, fmt.Errorf("audit log contains more than %d malformed entries", maxAuditParseErrors)
+			}
+			result.ParseErrors = append(result.ParseErrors, ParseError{Line: lineNum, Err: jerr})
 			continue
 		}
-		entries = append(entries, entry)
+		result.Total++
+		if verify && result.VerifyError == nil {
+			if entry.PrevHash != previousHash {
+				result.VerifyError = &VerifyError{Index: verifiedIndex, Kind: "prev_hash", Expected: previousHash, Got: entry.PrevHash}
+			} else {
+				want, hashErr := hashEntry(entry)
+				switch {
+				case hashErr != nil:
+					result.VerifyError = &VerifyError{Index: verifiedIndex, Kind: "hash_version", Expected: legacyHashVersion + " or " + currentHashVersion, Got: entry.HashVersion}
+				case entry.EntryHash != want:
+					result.VerifyError = &VerifyError{Index: verifiedIndex, Kind: "entry_hash", Expected: want, Got: entry.EntryHash}
+				}
+			}
+			previousHash = entry.EntryHash
+			verifiedIndex++
+		}
+		if !filter.matches(entry) {
+			continue
+		}
+		if filter.Limit > 0 && !filter.Tail && len(result.Entries) >= filter.Limit {
+			continue
+		}
+		if filter.Limit > 0 && filter.Tail {
+			if len(result.Entries) < filter.Limit {
+				result.Entries = append(result.Entries, entry)
+				continue
+			}
+			result.Entries[tailStart] = entry
+			tailStart = (tailStart + 1) % filter.Limit
+			continue
+		}
+		if len(result.Entries) >= maxAuditMatches {
+			return result, fmt.Errorf("audit query matched more than %d entries; add filters or --limit", maxAuditMatches)
+		}
+		result.Entries = append(result.Entries, entry)
 	}
 	if serr := scanner.Err(); serr != nil {
-		return entries, parseErrors, fmt.Errorf("scan audit log: %w", serr)
+		return result, fmt.Errorf("scan audit log: %w", serr)
 	}
-	return entries, parseErrors, nil
+	if hooks != nil && hooks.beforeFinalVerify != nil {
+		hooks.beforeFinalVerify()
+	}
+	if err := scope.verifyOpenFile(opened); err != nil {
+		return result, fmt.Errorf("verify audit log after scan: %w", err)
+	}
+	finalInfo, err := opened.file.Stat()
+	if err != nil {
+		return result, err
+	}
+	if finalInfo.Size() < initialInfo.Size() || (finalInfo.Size() == initialInfo.Size() && !finalInfo.ModTime().Equal(initialInfo.ModTime())) {
+		return result, errors.New("audit log changed while scanning")
+	}
+	if filter.Limit > 0 && filter.Tail && len(result.Entries) == filter.Limit && tailStart != 0 {
+		ordered := make([]Entry, 0, filter.Limit)
+		ordered = append(ordered, result.Entries[tailStart:]...)
+		ordered = append(ordered, result.Entries[:tailStart]...)
+		result.Entries = ordered
+	}
+	return result, nil
+}
+
+// QueryResult is the bounded result of a streaming audit query.
+type QueryResult struct {
+	Entries     []Entry
+	ParseErrors []ParseError
+	Total       int
+	VerifyError error
 }
 
 // ParseError records a JSON parse failure for a single audit line.
@@ -167,7 +335,7 @@ func containsString(xs []string, want string) bool {
 // VerifyError describes a hash-chain integrity failure.
 type VerifyError struct {
 	Index    int    // zero-based index of the offending entry
-	Kind     string // "entry_hash" or "prev_hash"
+	Kind     string // "entry_hash", "prev_hash", or "hash_version"
 	Expected string
 	Got      string
 }
@@ -190,14 +358,10 @@ func Verify(entries []Entry) error {
 		if e.PrevHash != prev {
 			return &VerifyError{Index: i, Kind: "prev_hash", Expected: prev, Got: e.PrevHash}
 		}
-		want := computeHash(Entry{
-			Timestamp: e.Timestamp,
-			Action:    e.Action,
-			Actor:     e.Actor,
-			FeatureID: e.FeatureID,
-			Details:   e.Details,
-			PrevHash:  e.PrevHash,
-		})
+		want, err := hashEntry(e)
+		if err != nil {
+			return &VerifyError{Index: i, Kind: "hash_version", Expected: legacyHashVersion + " or " + currentHashVersion, Got: e.HashVersion}
+		}
 		if e.EntryHash != want {
 			return &VerifyError{Index: i, Kind: "entry_hash", Expected: want, Got: e.EntryHash}
 		}

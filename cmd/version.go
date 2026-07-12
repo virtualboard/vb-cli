@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,7 @@ func newVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print the CLI version",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			runtime.KeepAlive(version.BinaryMarker)
 			opts, err := options()
 			if err != nil {
 				return err

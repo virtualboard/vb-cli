@@ -1,9 +1,12 @@
 package validator
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,9 +14,27 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/contract"
 	"github.com/virtualboard/vb-cli/internal/feature"
-	"github.com/virtualboard/vb-cli/internal/util"
+	"github.com/virtualboard/vb-cli/internal/frameworkschema"
 )
+
+var replaceValidatedFix = func(batch *feature.MutationBatch, plan plannedFix, expected, replacement []byte) error {
+	return batch.CompareAndSwap(plan.feature.FrontMatter.ID, plan.feature.Path, expected, replacement, plan.mode)
+}
+
+type plannedFix struct {
+	target   *feature.Feature
+	feature  *feature.Feature
+	original []byte
+	planned  []byte
+	mode     os.FileMode
+}
+
+// maxDependencyDepth mirrors the immutable dependency policy in
+// templates/rules.yml. Depth counts dependency edges, so a root plus ten
+// reachable dependency nodes is valid and the eleventh edge is rejected.
+const maxDependencyDepth = 10
 
 // Result represents validation outcome for a single feature.
 type Result struct {
@@ -33,16 +54,27 @@ type Summary struct {
 // Validator performs schema and workflow checks.
 type Validator struct {
 	mgr          *feature.Manager
+	lifecycle    *contract.Lifecycle
+	root         string
 	schemaLoader gojsonschema.JSONLoader
 	log          *logrus.Entry
 }
 
 // New creates a validator configured for the manager.
 func New(opts *config.Options, mgr *feature.Manager) (*Validator, error) {
-	schemaPath := mgr.SchemaPath()
-	loader := gojsonschema.NewReferenceLoader("file://" + filepath.ToSlash(schemaPath))
+	lifecycle, err := mgr.Lifecycle()
+	if err != nil {
+		return nil, err
+	}
+	schemaData, err := frameworkschema.Feature(opts.RootDir, mgr.SchemaPath())
+	if err != nil {
+		return nil, err
+	}
+	loader := gojsonschema.NewStringLoader(string(schemaData))
 	return &Validator{
 		mgr:          mgr,
+		lifecycle:    lifecycle,
+		root:         opts.RootDir,
 		schemaLoader: loader,
 		log:          opts.Logger().WithField("component", "validator"),
 	}, nil
@@ -106,22 +138,171 @@ func (v *Validator) ValidateID(id string) (Result, error) {
 		return Result{}, err
 	}
 	result := v.validateSingle(feat)
+	all, err := v.mgr.List()
+	if err != nil {
+		return Result{}, err
+	}
+	board := make(map[string]*feature.Feature, len(all))
+	for _, listed := range all {
+		board[listed.FrontMatter.ID] = listed
+	}
+	if depthError := dependencyDepthViolations(board)[feat.FrontMatter.ID]; depthError != "" {
+		result.Errors = appendUniqueErrors(result.Errors, depthError)
+	}
+	result.Errors = appendUniqueErrors(result.Errors, v.validateReachableDependencies(feat.FrontMatter.ID, board)...)
+	return result, nil
+}
 
-	deps := map[string]*feature.Feature{id: feat}
-	for _, dep := range feat.FrontMatter.Dependencies {
-		dep = strings.TrimSpace(dep)
-		if dep == "" {
+// validateReachableDependencies validates the complete dependency closure of
+// rootID. Errors from transitive features retain the first deterministic chain
+// from the requested feature, while missing nodes and cycles include the full
+// chain that exposed them.
+func (v *Validator) validateReachableDependencies(rootID string, board map[string]*feature.Feature) []string {
+	root, exists := board[rootID]
+	if !exists {
+		return []string{"requested feature is absent from the validated board: " + rootID}
+	}
+	validationErrors := []string{}
+	state := make(map[string]uint8, len(board))
+	validated := map[string]bool{rootID: true}
+	var walk func(*feature.Feature, []string)
+	walk = func(current *feature.Feature, chain []string) {
+		currentID := current.FrontMatter.ID
+		state[currentID] = 1
+		for _, rawDependency := range current.FrontMatter.Dependencies {
+			dependencyID := strings.TrimSpace(rawDependency)
+			if dependencyID == "" {
+				continue
+			}
+			dependencyChain := append(append([]string(nil), chain...), dependencyID)
+			dependency, found := board[dependencyID]
+			if !found {
+				validationErrors = append(validationErrors, fmt.Sprintf("dependency chain %s: dependency %s not found", strings.Join(dependencyChain, " -> "), dependencyID))
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(current.FrontMatter.Status), "in-progress") && !strings.EqualFold(strings.TrimSpace(dependency.FrontMatter.Status), "done") {
+				validationErrors = append(validationErrors, fmt.Sprintf("dependency chain %s: dependency %s must be done before %s can be in-progress", strings.Join(dependencyChain, " -> "), dependencyID, currentID))
+			}
+			if state[dependencyID] == 1 {
+				validationErrors = append(validationErrors, "circular dependency detected in reachable chain: "+strings.Join(dependencyChain, " -> "))
+				continue
+			}
+			if !validated[dependencyID] {
+				validated[dependencyID] = true
+				dependencyResult := v.validateSingle(dependency)
+				for _, dependencyError := range dependencyResult.Errors {
+					validationErrors = append(validationErrors, fmt.Sprintf("dependency chain %s: %s", strings.Join(dependencyChain, " -> "), dependencyError))
+				}
+			}
+			if state[dependencyID] == 0 {
+				walk(dependency, dependencyChain)
+			}
+		}
+		state[currentID] = 2
+	}
+	walk(root, []string{rootID})
+	return appendUniqueErrors(nil, validationErrors...)
+}
+
+func appendUniqueErrors(existing []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, message := range existing {
+		seen[message] = struct{}{}
+	}
+	for _, message := range additions {
+		if _, duplicate := seen[message]; duplicate {
 			continue
 		}
-		depFeat, depErr := v.mgr.LoadByID(dep)
-		if depErr == nil {
-			deps[dep] = depFeat
+		seen[message] = struct{}{}
+		existing = append(existing, message)
+	}
+	return existing
+}
+
+// dependencyDepthViolations returns one deterministic, representative
+// over-depth chain per affected root. The graph is required to be acyclic by a
+// separate validation rule; back-edges are ignored here so cycles do not turn
+// this bounded longest-path calculation into recursion without an endpoint.
+func dependencyDepthViolations(features map[string]*feature.Feature) map[string]string {
+	ids := make([]string, 0, len(features))
+	for id := range features {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	state := make(map[string]uint8, len(features))
+	memo := make(map[string][]string, len(features))
+	var longestChain func(string) []string
+	longestChain = func(id string) []string {
+		if state[id] == 1 {
+			return nil
+		}
+		if state[id] == 2 {
+			return memo[id]
+		}
+		current, exists := features[id]
+		if !exists {
+			return nil
+		}
+		state[id] = 1
+		best := []string{id}
+		for _, rawDependency := range current.FrontMatter.Dependencies {
+			dependencyID := strings.TrimSpace(rawDependency)
+			if dependencyID == "" {
+				continue
+			}
+			suffix := longestChain(dependencyID)
+			if len(suffix) == 0 {
+				continue
+			}
+			candidate := make([]string, 1, min(maxDependencyDepth+2, len(suffix)+1))
+			candidate[0] = id
+			candidate = append(candidate, suffix...)
+			if len(candidate) > maxDependencyDepth+2 {
+				candidate = candidate[:maxDependencyDepth+2]
+			}
+			if len(candidate) > len(best) {
+				best = candidate
+			}
+		}
+		state[id] = 2
+		memo[id] = best
+		return best
+	}
+
+	violations := make(map[string]string)
+	for _, id := range ids {
+		chain := longestChain(id)
+		if len(chain)-1 > maxDependencyDepth {
+			violations[id] = fmt.Sprintf("dependency chain %s exceeds maximum dependency depth %d", strings.Join(chain, " -> "), maxDependencyDepth)
 		}
 	}
-	results := map[string]Result{id: result}
-	v.applyDependencyChecks(deps, results)
+	return violations
+}
 
-	return results[id], nil
+// ValidateCandidate validates a complete in-memory feature against the schema
+// and the prospective board graph, replacing any on-disk feature with the same
+// ID for relationship checks. It never writes.
+func (v *Validator) ValidateCandidate(candidate *feature.Feature) error {
+	features, err := v.mgr.List()
+	if err != nil {
+		return err
+	}
+	board := make(map[string]*feature.Feature, len(features)+1)
+	for _, feat := range features {
+		board[feat.FrontMatter.ID] = feat
+	}
+	board[candidate.FrontMatter.ID] = candidate
+	results := make(map[string]Result, len(board))
+	for id, feat := range board {
+		results[id] = v.validateSingle(feat)
+	}
+	v.applyDependencyChecks(board, results)
+	result := results[candidate.FrontMatter.ID]
+	if len(result.Errors) == 0 {
+		return nil
+	}
+	return fmt.Errorf("candidate feature %s is invalid: %s", candidate.FrontMatter.ID, strings.Join(result.Errors, "; "))
 }
 
 func (v *Validator) validateSingle(feat *feature.Feature) Result {
@@ -137,11 +318,9 @@ func (v *Validator) validateSingle(feat *feature.Feature) Result {
 		}
 	}
 
-	dir := feature.DirectoryForStatus(feat.FrontMatter.Status)
-	statusSubdir := strings.TrimPrefix(dir, "features/")
-	expectedDir := filepath.Join(v.mgr.FeaturesDir(), statusSubdir)
+	expectedDir, statusOK := v.lifecycle.DirectoryForStatus(feat.FrontMatter.Status)
 	actualDir := filepath.Dir(feat.Path)
-	if dir == "" {
+	if !statusOK {
 		errors = append(errors, fmt.Sprintf("invalid status %s", feat.FrontMatter.Status))
 	} else {
 		expectedClean := filepath.Clean(expectedDir)
@@ -151,19 +330,81 @@ func (v *Validator) validateSingle(feat *feature.Feature) Result {
 		}
 	}
 
-	expectedName := fmt.Sprintf("%s-%s.md", feat.FrontMatter.ID, util.Slugify(feat.FrontMatter.Title))
-	if base := filepath.Base(feat.Path); !strings.EqualFold(base, expectedName) {
-		errors = append(errors, fmt.Sprintf("filename '%s' should be '%s'", base, expectedName))
+	base := filepath.Base(feat.Path)
+	if err := v.lifecycle.ValidateFilename(base); err != nil {
+		errors = append(errors, err.Error())
+	}
+	if !strings.HasPrefix(strings.ToUpper(base), strings.ToUpper(feat.FrontMatter.ID)+"-") {
+		errors = append(errors, fmt.Sprintf("filename '%s' must retain immutable ID prefix %s-", base, feat.FrontMatter.ID))
 	}
 
-	if _, err := time.Parse("2006-01-02", feat.FrontMatter.Created); err != nil {
+	created, createdOK := parseExactDate(feat.FrontMatter.Created)
+	if !createdOK {
 		errors = append(errors, "created date must be YYYY-MM-DD")
 	}
-	if _, err := time.Parse("2006-01-02", feat.FrontMatter.Updated); err != nil {
+	updated, updatedOK := parseExactDate(feat.FrontMatter.Updated)
+	if !updatedOK {
 		errors = append(errors, "updated date must be YYYY-MM-DD")
+	}
+	statusChanged, statusChangedOK := parseExactDate(feat.FrontMatter.StatusChanged)
+	if !statusChangedOK {
+		errors = append(errors, "status_changed date must be YYYY-MM-DD")
+	}
+	today, _ := parseExactDate(time.Now().Format("2006-01-02"))
+	if createdOK && created.After(today) {
+		errors = append(errors, "created date cannot be in the future")
+	}
+	if statusChangedOK && statusChanged.After(today) {
+		errors = append(errors, "status_changed date cannot be in the future")
+	}
+	if updatedOK && updated.After(today) {
+		errors = append(errors, "updated date cannot be in the future")
+	}
+	if createdOK && statusChangedOK && created.After(statusChanged) {
+		errors = append(errors, "date provenance requires created <= status_changed")
+	}
+	if statusChangedOK && updatedOK && statusChanged.After(updated) {
+		errors = append(errors, "date provenance requires status_changed <= updated")
+	}
+	implementationOwner := strings.TrimSpace(feat.FrontMatter.ImplementationOwner)
+	if implementationOwner == "" {
+		errors = append(errors, "implementation_owner is required")
+	} else if err := v.lifecycle.ValidateOwner(implementationOwner, !v.lifecycle.RequiresAssignedOwner(feat.FrontMatter.Status)); err != nil {
+		errors = append(errors, "invalid implementation_owner: "+err.Error())
+	}
+	owner := strings.TrimSpace(feat.FrontMatter.Owner)
+	if owner == "" {
+		errors = append(errors, "owner is required")
+	} else if err := v.lifecycle.ValidateOwner(owner, !v.lifecycle.RequiresAssignedOwner(feat.FrontMatter.Status)); err != nil {
+		errors = append(errors, "invalid owner: "+err.Error())
+	}
+	if v.lifecycle.RequiresAssignedOwner(feat.FrontMatter.Status) {
+		if owner == "" || strings.EqualFold(owner, "unassigned") {
+			errors = append(errors, fmt.Sprintf("status '%s' requires an assigned owner", feat.FrontMatter.Status))
+		}
+		if implementationOwner == "" || strings.EqualFold(implementationOwner, "unassigned") {
+			errors = append(errors, fmt.Sprintf("status '%s' requires an assigned implementation_owner", feat.FrontMatter.Status))
+		}
+	}
+	status := strings.ToLower(strings.TrimSpace(feat.FrontMatter.Status))
+	if (status == "review" || status == "done") && owner != "" && implementationOwner != "" &&
+		!strings.EqualFold(owner, "unassigned") && !strings.EqualFold(implementationOwner, "unassigned") &&
+		strings.EqualFold(owner, implementationOwner) {
+		errors = append(errors, fmt.Sprintf("status '%s' requires reviewer owner to differ from implementation_owner", status))
+	}
+	errors = append(errors, feature.ValidateBodyForStatus(feat.Body, feat.FrontMatter.Status)...)
+	errors = append(errors, v.validateInternalLinks(feat)...)
+	if worktreeFileChanged(feat.Path) && feat.FrontMatter.Updated != time.Now().Format("2006-01-02") {
+		errors = append(errors, "updated date must be today when the feature file has uncommitted changes")
 	}
 
 	return Result{Feature: feat, Errors: errors}
+}
+
+func parseExactDate(value string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(value)
+	parsed, err := time.Parse("2006-01-02", trimmed)
+	return parsed, err == nil && parsed.Format("2006-01-02") == trimmed
 }
 
 func (v *Validator) applyDependencyChecks(features map[string]*feature.Feature, results map[string]Result) {
@@ -194,6 +435,12 @@ func (v *Validator) applyDependencyChecks(features map[string]*feature.Feature, 
 			res.Errors = append(res.Errors, message)
 			results[id] = res
 		}
+	}
+
+	for id, message := range dependencyDepthViolations(features) {
+		res := results[id]
+		res.Errors = appendUniqueErrors(res.Errors, message)
+		results[id] = res
 	}
 }
 
@@ -278,25 +525,101 @@ func dedupeCycles(cycles [][]string) [][]string {
 	return unique
 }
 
-// ApplyFixes applies non-destructive fixes (template re-application and filename syncing).
+// ApplyFixes applies non-destructive template repairs while preserving the
+// immutable feature basename.
 func (v *Validator) ApplyFixes(features map[string]*feature.Feature, processor func(*feature.Feature) error) error {
-	for _, feat := range features {
-		// Apply template fixes
-		if err := processor(feat); err != nil {
-			return err
+	ids := make([]string, 0, len(features))
+	for id := range features {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return v.mgr.WithFeatureMutationBatch(ids, func(batch *feature.MutationBatch) error {
+		snapshots := make(map[string]*feature.GuardedFeatureSnapshot, len(ids))
+		for _, id := range ids {
+			snapshot, err := batch.Load(id)
+			if err != nil {
+				return err
+			}
+			if err := batch.Authorize(snapshot.Feature, false); err != nil {
+				return err
+			}
+			snapshots[id] = snapshot
 		}
 
-		// Sync filename with title
-		if _, err := v.mgr.RenameToMatchTitle(feat); err != nil {
-			return err
+		plans := make([]plannedFix, 0, len(ids))
+		for _, id := range ids {
+			snapshot := snapshots[id]
+			feat := cloneFeature(snapshot.Feature)
+			if err := processor(feat); err != nil {
+				return err
+			}
+			feat.UpdateTimestamp()
+			planned, err := feat.Encode()
+			if err != nil {
+				return err
+			}
+			plans = append(plans, plannedFix{
+				target: features[id], feature: feat,
+				original: append([]byte(nil), snapshot.Data...), planned: planned,
+				mode: snapshot.Mode.Perm(),
+			})
 		}
 
-		// Save if not already saved by rename
-		if err := v.mgr.Save(feat); err != nil {
-			return err
+		// Re-read every planned input before the first write. Guards prevent
+		// cooperating CLI processes from changing them; this second pass also
+		// catches direct filesystem edits made during planning.
+		for _, plan := range plans {
+			current, err := batch.Load(plan.feature.FrontMatter.ID)
+			if err != nil {
+				return err
+			}
+			if filepath.Clean(current.Feature.Path) != filepath.Clean(plan.feature.Path) ||
+				!bytes.Equal(current.Data, plan.original) || current.Mode.Perm() != plan.mode.Perm() {
+				return fmt.Errorf("%w: feature %s changed while fixes were being planned", feature.ErrStaleFeature, plan.feature.FrontMatter.ID)
+			}
+		}
+		if len(plans) == 0 || v.mgr.DryRun() {
+			return nil
+		}
+
+		applied := make([]plannedFix, 0, len(plans))
+		for _, plan := range plans {
+			if err := replaceValidatedFix(batch, plan, plan.original, plan.planned); err != nil {
+				return rollbackValidatedFixes(batch, applied, err)
+			}
+			applied = append(applied, plan)
+		}
+		for _, plan := range plans {
+			*plan.target = *cloneFeature(plan.feature)
+			v.mgr.RecordAudit("validate-fix", plan.feature.FrontMatter.ID, "template repair")
+		}
+		return nil
+	})
+}
+
+func cloneFeature(source *feature.Feature) *feature.Feature {
+	clone := *source
+	clone.FrontMatter.Labels = append([]string{}, source.FrontMatter.Labels...)
+	clone.FrontMatter.Dependencies = append([]string{}, source.FrontMatter.Dependencies...)
+	return &clone
+}
+
+func rollbackValidatedFixes(batch *feature.MutationBatch, applied []plannedFix, applyErr error) error {
+	rollbackErrors := []string{}
+	for i := len(applied) - 1; i >= 0; i-- {
+		plan := applied[i]
+		if err := replaceValidatedFix(batch, plan, plan.planned, plan.original); err != nil {
+			if errors.Is(err, feature.ErrStaleFeature) {
+				rollbackErrors = append(rollbackErrors, plan.feature.FrontMatter.ID+": concurrent content preserved")
+				continue
+			}
+			rollbackErrors = append(rollbackErrors, plan.feature.FrontMatter.ID+": "+err.Error())
 		}
 	}
-	return nil
+	if len(rollbackErrors) > 0 {
+		return fmt.Errorf("apply fixes: %w (rollback failures: %s)", applyErr, strings.Join(rollbackErrors, "; "))
+	}
+	return fmt.Errorf("apply fixes: %w", applyErr)
 }
 
 // CollectFeatures returns a map of ID to feature for fix workflows.

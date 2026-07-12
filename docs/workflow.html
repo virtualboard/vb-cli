@@ -257,7 +257,12 @@
                 <div class="code-terminal-dot code-terminal-dot--green"></div>
               </div>
               <div class="code-terminal-body">
-                <code>vb new "User Authentication" security auth</code>
+<pre>AGENT_ID=alice
+vb validate
+vb --actor "$AGENT_ID" new "User Authentication" security auth
+vb validate FTR-0001
+LOCK_TOKEN=$(vb --actor "$AGENT_ID" lock FTR-0001 --token-only)
+[[ "$LOCK_TOKEN" =~ ^[0-9a-f]{64}$ ]] || exit 1</pre>
               </div>
             </div>
             <p class="text-xs text-muted-foreground mt-3">
@@ -281,9 +286,11 @@
                 <div class="code-terminal-dot code-terminal-dot--green"></div>
               </div>
               <div class="code-terminal-body">
-<pre>vb validate all
-vb move FEAT-001 in-progress --owner=alice
-vb move FEAT-001 review</pre>
+<pre>vb --actor "$AGENT_ID" move FTR-0001 in-progress --owner "$AGENT_ID"
+# Implement the feature and complete its acceptance criteria.
+vb validate FTR-0001
+vb --actor "$AGENT_ID" move FTR-0001 review --owner reviewer-bob
+vb --actor "$AGENT_ID" lock FTR-0001 --release --token "$LOCK_TOKEN"</pre>
               </div>
             </div>
             <p class="text-xs text-muted-foreground mt-3">
@@ -295,10 +302,10 @@ vb move FEAT-001 review</pre>
           <div class="vb-card">
             <div class="flex items-center gap-3 mb-4">
               <div class="step-num">4</div>
-              <h3 class="text-base font-semibold">Generate Indexes</h3>
+              <h3 class="text-base font-semibold">Check the Central Index</h3>
             </div>
             <p class="text-sm text-muted-foreground mb-3">
-              Create stakeholder-friendly views of all features:
+              Let CI detect aggregate index drift without changing a feature branch:
             </p>
             <div class="code-terminal">
               <div class="code-terminal-bar">
@@ -307,11 +314,12 @@ vb move FEAT-001 review</pre>
                 <div class="code-terminal-dot code-terminal-dot--green"></div>
               </div>
               <div class="code-terminal-body">
-                <code>vb index</code>
+                <code>vb index --check</code>
               </div>
             </div>
             <p class="text-xs text-muted-foreground mt-3">
-              Outputs Markdown, JSON, and HTML indexes sorted by status and priority.
+              The main-branch or integration owner regenerates aggregate indexes after
+              feature changes land, avoiding cross-feature merge conflicts.
             </p>
           </div>
         </div>
@@ -338,9 +346,9 @@ vb move FEAT-001 review</pre>
               New features start in the backlog directory. They include:
             </p>
             <ul class="bullet-list space-y-1.5 text-sm">
-              <li>Unique feature ID (FEAT-XXX)</li>
+              <li>Unique feature ID (<code class="inline-code">FTR-####</code>)</li>
               <li>Title, labels, and metadata</li>
-              <li>Overview and acceptance criteria sections</li>
+              <li>Exactly one ordered copy of all 14 canonical H2 sections inside one untrusted-content boundary</li>
               <li>Status set to <code class="inline-code">backlog</code></li>
             </ul>
             <p class="text-xs text-muted-foreground mt-3">Transitions to: <code class="inline-code">in-progress</code></p>
@@ -373,7 +381,7 @@ vb move FEAT-001 review</pre>
           <div class="vb-card">
             <h3 class="text-lg font-semibold mb-3">Review</h3>
             <p class="text-sm text-muted-foreground">
-              When implementation is complete, features move to <code class="inline-code">review</code> for QA, code review, or stakeholder sign-off. If changes are requested, the feature moves back to <code class="inline-code">in-progress</code>. Once approved, it transitions to <code class="inline-code">done</code>.
+              When implementation is complete, features move to <code class="inline-code">review</code> under a distinct reviewer only after every meaningful acceptance item is checked. If changes are requested, the feature moves back to <code class="inline-code">in-progress</code>. Once approved, it transitions to <code class="inline-code">done</code>.
             </p>
             <p class="text-xs text-muted-foreground mt-3">Transitions to: <code class="inline-code">in-progress</code>, <code class="inline-code">done</code></p>
           </div>
@@ -382,7 +390,7 @@ vb move FEAT-001 review</pre>
           <div class="vb-card">
             <h3 class="text-lg font-semibold mb-3">Done</h3>
             <p class="text-sm text-muted-foreground">
-              Completed features are archived in <code class="inline-code">done</code>. This is a terminal state &mdash; no further transitions are allowed. Done features can serve as dependencies for other features and remain as documentation of delivered functionality.
+              Completed features are archived in <code class="inline-code">done</code> only with meaningful Implementation Notes and a concrete artifact or reference in Links. This is a terminal state &mdash; no further transitions are allowed. Done features can serve as dependencies for other features and remain as documentation of delivered functionality.
             </p>
             <p class="text-xs text-muted-foreground mt-3">Terminal state (no outgoing transitions)</p>
           </div>
@@ -466,13 +474,16 @@ vb move FEAT-001 review</pre>
                 <div class="code-terminal-dot code-terminal-dot--green"></div>
               </div>
               <div class="code-terminal-body">
-<pre>vb lock acquire FEAT-001
-# Edit the feature...
-vb lock release FEAT-001</pre>
+<pre>TOKEN=$(vb --actor alice lock FTR-0001 --token-only)
+[[ "$TOKEN" =~ ^[0-9a-f]{64}$ ]] || exit 1
+# Edit the feature while this acquisition is active...
+vb --actor alice lock FTR-0001 --release --token "$TOKEN"</pre>
               </div>
             </div>
             <p class="text-xs text-muted-foreground">
-              Locks are TTL-based with atomic creation to prevent race conditions. They can be checked or force-overridden when needed.
+              Each acquisition returns an opaque token. Status never reveals it;
+              token-bearing locks require the exact token for ordinary release, while
+              <code class="inline-code">--force --release</code> is an explicit administrative override.
             </p>
           </div>
 
@@ -489,12 +500,13 @@ vb lock release FEAT-001</pre>
                 <div class="code-terminal-dot code-terminal-dot--green"></div>
               </div>
               <div class="code-terminal-body">
-<pre>vb validate all --json | jq '.errors'
-vb index --json</pre>
+<pre>vb validate --json
+vb index --check --json</pre>
               </div>
             </div>
             <p class="text-xs text-muted-foreground">
-              Combine with <code class="inline-code">--dry-run</code> to preview changes before applying them.
+              Both commands return nonzero on failure. The index check never writes,
+              so CI and feature branches cannot race on the aggregate artifact.
             </p>
           </div>
         </div>
