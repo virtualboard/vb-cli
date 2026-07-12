@@ -82,13 +82,13 @@ type cursorDestinationSnapshot struct {
 var openCodeIntegrationManifest = []integrationManifestEntry{
 	{
 		Path:   openCodeRequiredSkill,
-		SHA256: "2182f4a606d56412b5b4731768371842e9435658a6746a4fc56c865ac2f9f075",
+		SHA256: "dce51b2e3e221d778184d055f549acbf0f595971e18961e6cc430ba9575e0001",
 	},
 }
 
 // cursorIntegrationSHA256 authenticates the single fixed Cursor payload from
 // the coordinated template release. Tests replace it with fixture content.
-var cursorIntegrationSHA256 = "d2f02aed75ff82e29517690716fe0de47a9f87bc64a391304098140e186a4265"
+var cursorIntegrationSHA256 = "d047218c7da962b57bf2f827f6ccf654edb2c01aefa9b1bb52bb09de80a30285"
 
 // Function variables for testability
 var (

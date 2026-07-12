@@ -62,6 +62,11 @@ All notable changes to this project will be documented in this file. The format 
   safely resumes ambiguous draft operations, never deletes a release, and ships
   native Windows ARM64 alongside Windows AMD64.
 
+### Fixed
+
+- Bound the compiled Cursor and OpenCode authorization digests to the exact
+  payload bytes in the coordinated template v0.8.0 release candidate.
+
 ## [v0.10.0] - 2026-07-10
 
 ### Added
