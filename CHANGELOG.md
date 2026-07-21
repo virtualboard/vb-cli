@@ -62,6 +62,15 @@ All notable changes to this project will be documented in this file. The format 
   safely resumes ambiguous draft operations, never deletes a release, and ships
   native Windows ARM64 alongside Windows AMD64.
 
+### Changed
+
+- Bump `golang.org/x/term` from 0.43.0 to 0.45.0 (transitive `golang.org/x/sys`
+  0.44.0 → 0.47.0); incorporates [#57](https://github.com/virtualboard/vb-cli/pull/57)
+- Bump the commit-pinned `actions/checkout` reference used by `ci.yml` and
+  `release.yml` to v7.0.1; incorporates [#55](https://github.com/virtualboard/vb-cli/pull/55)
+- Bump the commit-pinned `actions/setup-go` reference used by `ci.yml` and
+  `release.yml` to v7.0.0; incorporates [#58](https://github.com/virtualboard/vb-cli/pull/58)
+
 ### Fixed
 
 - Bound the compiled Cursor and OpenCode authorization digests to the exact
