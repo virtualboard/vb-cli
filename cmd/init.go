@@ -182,7 +182,7 @@ func refreshManagedTemplateFiles(targetRoot, stagedRoot string) error {
 	}
 	remaining = filterRemovalsToPreviouslyManaged(remaining, previous)
 	if remaining.HasChanges() {
-		return fmt.Errorf("managed template refresh is incomplete: %d change(s) remain", remaining.TotalChanges())
+		return fmt.Errorf("managed template refresh is incomplete: %d change(s) remain: %s", remaining.TotalChanges(), strings.Join(collectFilePaths(remaining), ", "))
 	}
 	manifest, err := ensureTemplateManifest(stagedRoot, templateVersion)
 	if err != nil {

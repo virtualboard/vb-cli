@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/util"
 )
 
 const (
@@ -388,7 +389,7 @@ func TestWorkspaceRootResolution(t *testing.T) {
 		projectRoot string
 		vbRoot      string
 	}{
-		{name: "nested", root: filepath.Join("/app", ".virtualboard"), projectRoot: "/app", vbRoot: filepath.Join("/app", ".virtualboard")},
+		{name: "nested", root: filepath.Join("/app", ".virtualboard"), projectRoot: filepath.Dir(filepath.Join("/app", ".virtualboard")), vbRoot: filepath.Join("/app", ".virtualboard")},
 		{name: "template", root: templateRoot, projectRoot: templateRoot, vbRoot: templateRoot},
 		{name: "default nested", root: contractDirectoryRoot, projectRoot: contractDirectoryRoot, vbRoot: filepath.Join(contractDirectoryRoot, ".virtualboard")},
 	}
@@ -1415,7 +1416,7 @@ func TestReadRequiredIntegrationFile(t *testing.T) {
 	valid := filepath.Join(root, "valid")
 	writeInstallFile(t, valid, "content", 0o640)
 	content, mode, err := readRequiredIntegrationFile(valid, "valid")
-	if err != nil || string(content) != "content" || mode != 0o640 {
+	if err != nil || string(content) != "content" || !util.PermMatchesRequested(mode, 0o640) {
 		t.Fatalf("valid required source = %q, %v, %v", content, mode, err)
 	}
 }
