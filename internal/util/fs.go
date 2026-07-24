@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -311,7 +312,7 @@ func (s *privateExclusiveStage) verify(expected []byte, mode fs.FileMode) error 
 		return errors.New("bound private exclusive stage directory changed")
 	}
 	openedFile, err := s.file.Stat()
-	if err != nil || !openedFile.Mode().IsRegular() || !os.SameFile(s.fileIdentity, openedFile) || openedFile.Mode().Perm() != mode.Perm() {
+	if err != nil || !openedFile.Mode().IsRegular() || !os.SameFile(s.fileIdentity, openedFile) || !exclusiveStagePermMatches(openedFile.Mode(), mode) {
 		return errors.New("retained exclusive staging file changed")
 	}
 	namedFile, err := s.root.Lstat(s.fileName)
@@ -329,6 +330,17 @@ func (s *privateExclusiveStage) verify(expected []byte, mode fs.FileMode) error 
 		return errors.New("exclusive staging bytes changed")
 	}
 	return nil
+}
+
+// exclusiveStagePermMatches reports whether actual retains the permission
+// intent of expected. Windows exposes ACL-backed writable regular files as
+// 0666 regardless of the requested Unix permission bits, so only the
+// writable attribute is meaningful there.
+func exclusiveStagePermMatches(actual, expected fs.FileMode) bool {
+	if runtime.GOOS == "windows" {
+		return (actual.Perm()&0o200 != 0) == (expected.Perm()&0o200 != 0)
+	}
+	return actual.Perm() == expected.Perm()
 }
 
 func (s *privateExclusiveStage) cleanup() error {

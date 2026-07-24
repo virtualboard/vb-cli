@@ -1,6 +1,7 @@
 package feature
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -68,7 +69,7 @@ func TestParseAndEncode(t *testing.T) {
 		t.Fatalf("update timestamp not applied")
 	}
 
-	if feat.StatusDirectory("/root") != "/root/features/backlog" {
+	if feat.StatusDirectory("/root") != filepath.Join("/root", "features", "backlog") {
 		t.Fatalf("unexpected directory")
 	}
 	feat.FrontMatter.Status = "unknown"

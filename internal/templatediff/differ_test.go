@@ -302,7 +302,7 @@ func TestCollectFiles(t *testing.T) {
 	// Verify all expected files are present
 	fileMap := make(map[string]bool)
 	for _, f := range collected {
-		fileMap[f] = true
+		fileMap[filepath.ToSlash(f)] = true
 	}
 
 	for _, expected := range files {
