@@ -93,7 +93,7 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 				Path:          relPath,
 				Status:        FileStatusAdded,
 				RemoteContent: content,
-				RemoteMode:    normalizedTemplateMode(mode),
+				RemoteMode:    normalizedTemplateMode(relPath, mode),
 			})
 		} else {
 			// File exists in both, check if modified
@@ -158,7 +158,7 @@ func compareFilesWithin(localRoot, remoteRoot, localPath, remotePath, relPath st
 		return nil, fmt.Errorf("failed to read remote file: %w", err)
 	}
 
-	remoteMode = normalizedTemplateMode(remoteMode)
+	remoteMode = normalizedTemplateMode(relPath, remoteMode)
 	localMode = installedTemplateMode(relPath, localMode)
 
 	// Quick byte and effective-mode comparison. Local permissions are intentionally
@@ -211,7 +211,18 @@ func unifiedDiffIsBounded(localContent, remoteContent []byte) bool {
 		bytes.Count(remoteContent, []byte("\n")) <= maxUnifiedDiffLines
 }
 
-func normalizedTemplateMode(mode fs.FileMode) fs.FileMode {
+// normalizedTemplateMode canonicalizes a remote/staged file's mode to
+// whichever of the two blessed template modes (0755 executable, 0644 plain)
+// it represents. On Windows this can't be read back from the extracted
+// staging copy's Stat() at all: Go's Windows FileMode emulation never
+// reports an execute bit, whether the file was just extracted from an
+// archive or already installed. installedTemplateMode's path-based
+// convention is the only signal available there, so both sides of the
+// comparison must agree on it.
+func normalizedTemplateMode(relPath string, mode fs.FileMode) fs.FileMode {
+	if runtime.GOOS == "windows" {
+		return installedTemplateMode(relPath, mode)
+	}
 	if mode.Perm()&0o111 != 0 {
 		return 0o755
 	}
