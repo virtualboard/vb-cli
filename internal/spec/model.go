@@ -38,6 +38,7 @@ const frontmatterDelimiter = "---"
 
 // Parse reads a spec file and extracts frontmatter and body.
 func Parse(path string, data []byte) (*Spec, error) {
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	content := string(data)
 	lines := strings.Split(content, "\n")
 
@@ -63,7 +64,9 @@ func Parse(path string, data []byte) (*Spec, error) {
 
 	fmContent := strings.Join(lines[1:endIdx], "\n")
 	var fm FrontMatter
-	if err := yaml.Unmarshal([]byte(fmContent), &fm); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader([]byte(fmContent)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&fm); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidFrontmatter, err)
 	}
 

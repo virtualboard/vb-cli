@@ -30,7 +30,7 @@ Examples:
   vb validate                    # Validate all features and specs
   vb validate --only-features    # Validate only features
   vb validate --only-specs       # Validate only specs
-  vb validate FEAT-001           # Validate specific feature
+  vb validate FTR-0001           # Validate specific feature
   vb validate tech-stack.md      # Validate specific spec`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -97,7 +97,7 @@ Examples:
 						return WrapCLIError(ExitCodeFilesystem, err)
 					}
 					if err := v.ApplyFixes(feats, processor.Apply); err != nil {
-						return WrapCLIError(ExitCodeFilesystem, err)
+						return wrapMutationError(err)
 					}
 				}
 
@@ -118,7 +118,13 @@ Examples:
 							"fix_applied": fix,
 						}
 						success := len(result.Errors) == 0
-						return respond(cmd, opts, success, "validation complete", payload)
+						if err := respond(cmd, opts, success, "validation complete", payload); err != nil {
+							return err
+						}
+						if !success {
+							return WrapCLIError(ExitCodeValidation, fmt.Errorf("validation failed for %s", target))
+						}
+						return nil
 					}
 
 					if len(result.Errors) > 0 {
@@ -168,7 +174,13 @@ Examples:
 							"status": result.Spec.FrontMatter.Status,
 						}
 						success := len(result.Errors) == 0
-						return respond(cmd, opts, success, "validation complete", payload)
+						if err := respond(cmd, opts, success, "validation complete", payload); err != nil {
+							return err
+						}
+						if !success {
+							return WrapCLIError(ExitCodeValidation, fmt.Errorf("validation failed for %s", target))
+						}
+						return nil
 					}
 
 					if len(result.Errors) > 0 {
@@ -196,7 +208,13 @@ Examples:
 			// Handle combined summary output
 			if opts.JSONOutput {
 				payload := buildCombinedPayload(featureSummary, specSummary, fix, target)
-				return respond(cmd, opts, totalErrors == 0, "validation complete", payload)
+				if err := respond(cmd, opts, totalErrors == 0, "validation complete", payload); err != nil {
+					return err
+				}
+				if totalErrors > 0 {
+					return WrapCLIError(ExitCodeValidation, fmt.Errorf("validation failed with %d error(s)", totalErrors))
+				}
+				return nil
 			}
 
 			// Print failures

@@ -1,70 +1,79 @@
 # Agent Operations Guide
 
-Welcome! This document orients AI coding agents working on `vb-cli`. Follow these instructions to keep the project consistent and healthy.
+`vb-cli` is the exact Go 1.25.0 command-line implementation of VirtualBoard. Commands
+live in `cmd/`; domain behavior lives under `internal/`. Read the nearest source
+and tests before changing behavior, and preserve the plain/JSON exit-code
+contract.
 
-## Project Overview
+## Core invariants
 
-- **Language**: Go (1.25+). CLI built atop [spf13/cobra](https://github.com/spf13/cobra).
-- **Layout**: Root commands under `cmd/`, domain logic under `internal/<package>/`, shared helpers in `internal/util/` and `internal/testutil/`.
-- **Key Packages**:
-  - `internal/feature`: feature parsing, CRUD, workflow transitions.
-  - `internal/indexer`: renders indexes (Markdown, JSON, HTML).
-  - `internal/validator`: schema + workflow validation with dependency checks.
-  - `internal/lock`: locking semantics for collaborative edits.
-  - `internal/template`: template application helpers.
-  - `internal/util`: I/O primitives, JSON helpers, slugging.
-  - `internal/version`: semantic version string.
-- **CLI**: Exposed via cobra commands (`vb init`, `vb new`, `vb move`, `vb validate`, etc.). `vb init` downloads and extracts the template archive (no git dependency). Full reference lives in `docs/CLI.md`.
+- `virtualboard.json` is the machine-readable mirror of the supported v0.10
+  contract, not an open extension point. The CLI authenticates the complete
+  semantic contract—including authorization effects, roles, commands, plugin
+  expectations, paths, identities, lifecycle, and ownership—against its
+  compiled canonical digest before using any projected runtime field.
+- Every feature mutation requires an explicit stable actor from `--actor`,
+  `VIRTUALBOARD_ACTOR`, or `AGENT_ID`. `--owner` assigns state; it never
+  authenticates the caller. Never fall back to the OS username.
+- Ownership and active locks fail closed. IDs, feature basenames, and managed
+  lifecycle fields are immutable through ordinary update commands.
+- Review handback restores the preserved `implementation_owner`; it may not
+  assign an arbitrary replacement implementer.
+- Duplicate IDs, unsafe paths, symlinks/non-regular feature files, malformed
+  contracts, bad checksums, and invalid JSON validation results are errors.
+- Dry-run output must describe what actually happened. JSON failures return a
+  structured failure payload and a nonzero exit status.
+- Audit hashes provide tamper evidence for entries that exist. Feature/lock
+  append failures are currently best-effort, so the audit file is not a proof of
+  completeness and must not be the only authorization control.
 
-## Development Workflow
-- Use `make` targets:
-  - `make build` – compile modules.
-  - `make test` – run full test suite with enforced 100% coverage. Fails if any package reports <100%.
-  - `make scan` – run gosec security scan (excludes `.gomodcache` and `dist`).
-  - `make package` – build `dist/vb` binary.
-- Pre-commit hooks (`pre-commit install`) run `make test` and `make scan` prior to commit.
-- All PRs must run both `make test` and `make scan` (either manually or via hooks) before completion.
+## Important packages
 
-## Testing & Coverage
-- 100% coverage is mandatory. The `make test` target normalises counters and verifies total coverage equals `100.0%`.
-- Add or adjust tests whenever code changes. Most tests live beside their packages (`*_test.go`).
+- `internal/contract`: runtime workspace contract
+- `internal/feature`: feature parsing, ownership, and lifecycle mutations
+- `internal/validator`: schema, dependency, link, folder, and date validation
+- `internal/indexer`: deterministic Markdown/JSON/HTML indexes
+- `internal/lock`: actor-attributed TTL locks
+- `internal/audit`: bounded, versioned hash-chain append/read/verify
+- `internal/migration`: all-board lifecycle-provenance migration
+- `internal/upgrade`: bounded release resolution, verification, and replacement
+- `internal/util`: atomic filesystem and structured-output helpers
 
-## Security Practices
-- gosec integration is required. Pay attention to file permission warnings (use `0o600/0o750` as needed) and annotate deliberate `#nosec` cases with justification.
+## Required local verification
 
-## Documentation Expectations
-- Primary docs:
-  - `README.md` – high-level overview, quick start, badges, links.
-  - `docs/CLI.md` – command reference.
-  - `docs/DEVELOPMENT.md` – build/test/gosec/versioning instructions.
-  - `CHANGELOG.md` – semantic release notes.
-  - `docs/index.html` – update the HTML index if documentation or CLI behaviour changes.
-- **Always** update relevant documentation (`docs/`, `README.md`, and `docs/index.html`) when behaviour changes. Keep examples and command descriptions in sync.
+Use the pinned Go toolchain expected by the repository environment.
 
-## Versioning & Releases
-- Semantic Versioning (`internal/version/Current`).
-- Every change must assess whether to bump **major**, **minor**, or **patch**:
-  - Breaking CLI/API changes → major.
-  - Backwards-compatible features → minor.
-  - Bug fixes / internal changes → patch.
-- Update `internal/version/version.go` with the new tag (use `vX.Y.Z`).
-- Document the release in `CHANGELOG.md` with date and categorized entries.
-- Mention the version bump in README badges or documentation if relevant.
+```bash
+gofmt -w <changed-go-files>
+go vet ./...
+go test -race ./...
+make test
+make scan
+python3 scripts/check-workflows.py
+go build -trimpath -buildvcs=false ./...
+```
 
-## Agent Checklist Before Completion
-1. Review requirements and determine if external docs need updates (`docs/`, `README.md`, and `docs/index.html`). Apply updates.
-2. Decide on SemVer bump; update `internal/version/Current` and `CHANGELOG.md`.
-3. Ensure new functionality/tests reflect in docs.
-4. Run `make scan` and `make test` (or allow pre-commit to run them). Confirm both pass.
-5. Verify coverage remains at 100%.
-6. Summarize changes, include verification steps in final output.
+`make test` enforces the real measured coverage in `coverage.out` against
+`COVERAGE_MIN`; never rewrite counters or manufacture coverage. Add focused
+tests for success, failure, rollback, concurrency, path, JSON, and dry-run
+behavior as applicable.
 
-## Additional Context
-- Tests rely on `internal/testutil.Fixture` for isolated environments.
-- File I/O uses atomic writes (`internal/util/fs.go`) and secure permissions.
-- Validation uses JSON schema via `gojsonschema` (documented in `internal/validator`).
-- CLI responses support plain text and JSON; persist this dual behaviour on new commands.
-- Logging uses `sirupsen/logrus`; verbose mode writes to stderr or optional log file.
-- Index generation uses Go templates for HTML; keep additions thread-safe and deterministic.
+## Release and documentation
 
-Stay consistent, keep docs current (including `docs/index.html`), and run the verification suite before finishing.
+- Update `README.md`, `docs/CLI.md`, `docs/DEVELOPMENT.md`, and `CHANGELOG.md`
+  when public behavior changes.
+- `internal/version.Current` and a release tag must match exactly.
+- The template release asset/checksum must exist before the CLI release because
+  each binary embeds its verified digest.
+- Keep exactly the reviewed CI and release workflows; all action references stay
+  commit-pinned with read-only default permissions.
+- Tags, pushes, releases, package publication, and other external writes require
+  explicit user authorization. Never infer that authority from a feature spec.
+
+## Completion checklist
+
+1. Scope the diff and preserve unrelated work.
+2. Update behavior, tests, and user-facing documentation together.
+3. Run formatting, vet, race, measured coverage, gosec, workflow, and build gates.
+4. Record any honest residual limitation; do not convert it into a green claim.
+5. Do not tag, push, or publish unless the user explicitly requested it.

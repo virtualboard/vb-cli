@@ -30,7 +30,7 @@ func TestProcessorApply(t *testing.T) {
 			Created:    "2023-01-01",
 			Updated:    "2023-01-01",
 		},
-		Body: "Intro text\n\n",
+		Body: "Intro text\n\n<untrusted-content>\n\n</untrusted-content>\n",
 	}
 	feat.FrontMatter.Status = ""
 	feat.FrontMatter.Labels = nil

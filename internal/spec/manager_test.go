@@ -1,12 +1,14 @@
 package spec
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/contract"
 )
 
 func setupTestEnv(t *testing.T) (*Manager, string) {
@@ -22,6 +24,7 @@ func setupTestEnv(t *testing.T) (*Manager, string) {
 	if err := os.MkdirAll(schemasDir, 0o750); err != nil {
 		t.Fatalf("failed to create schemas dir: %v", err)
 	}
+	writeSpecTestContract(t, vbDir)
 
 	schema := `{
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -63,6 +66,72 @@ func TestManagerSchemaPath(t *testing.T) {
 	expected := filepath.Join(vbDir, "schemas", "system-spec.schema.json")
 	if mgr.SchemaPath() != expected {
 		t.Errorf("expected %s, got %s", expected, mgr.SchemaPath())
+	}
+}
+
+func TestManagerRejectsNoncanonicalSpecAndSchemaPaths(t *testing.T) {
+	_, vbDir := setupTestEnv(t)
+	contractJSON := strings.Replace(string(contract.CanonicalJSON()), `"specs": "specs"`, `"specs": "blueprints"`, 1)
+	if err := os.WriteFile(filepath.Join(vbDir, "virtualboard.json"), []byte(contractJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := config.New()
+	if err := opts.Init(vbDir, false, false, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(opts)
+	if _, err := NewValidator(opts, mgr); err == nil || !strings.Contains(err.Error(), "complete canonical contract") {
+		t.Fatalf("noncanonical spec/schema contract was accepted: %v", err)
+	}
+}
+
+func TestLoadByNameRejectsTraversalAndSymlink(t *testing.T) {
+	mgr, vbDir := setupTestEnv(t)
+	if _, err := mgr.LoadByName("../outside"); err == nil {
+		t.Fatal("spec path traversal accepted")
+	}
+	target := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(target, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(vbDir, "specs", "linked.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := mgr.LoadByName("linked.md"); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("symlinked spec accepted: %v", err)
+	}
+	if _, err := mgr.List(); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("symlinked spec discovery accepted: %v", err)
+	}
+}
+
+func TestListRejectsSymlinkedSpecInventoryRoot(t *testing.T) {
+	mgr, vbDir := setupTestEnv(t)
+	specsDir := filepath.Join(vbDir, "specs")
+	external := filepath.Join(t.TempDir(), "external-specs")
+	if err := os.Rename(specsDir, external); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, specsDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := mgr.List(); err == nil || !strings.Contains(err.Error(), "not a real directory") {
+		t.Fatalf("symlinked spec inventory root error = %v", err)
+	}
+}
+
+func TestListBoundsSpecInventoryEntries(t *testing.T) {
+	mgr, vbDir := setupTestEnv(t)
+	specsDir := filepath.Join(vbDir, "specs")
+	for i := 0; i <= maxSpecEntries; i++ {
+		path := filepath.Join(specsDir, fmt.Sprintf("ignored-%05d.txt", i))
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := mgr.List(); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized spec inventory error = %v", err)
 	}
 }
 
@@ -281,19 +350,15 @@ func TestListEmpty(t *testing.T) {
 
 func TestListNoSpecsDir(t *testing.T) {
 	tmpDir := t.TempDir()
+	writeSpecTestContract(t, tmpDir)
 	opts := config.New()
 	if err := opts.Init(tmpDir, false, false, false, ""); err != nil {
 		t.Fatalf("failed to init options: %v", err)
 	}
 	mgr := NewManager(opts)
 
-	list, err := mgr.List()
-	if err != nil {
-		t.Fatalf("list failed: %v", err)
-	}
-
-	if len(list) != 0 {
-		t.Errorf("expected empty list when specs dir missing, got %d", len(list))
+	if _, err := mgr.List(); err == nil || !strings.Contains(err.Error(), "required spec inventory root is missing") {
+		t.Fatalf("missing specs directory error = %v", err)
 	}
 }
 
@@ -376,6 +441,7 @@ func TestLoadByNameReadError(t *testing.T) {
 	if err := os.MkdirAll(specsDir, 0o750); err != nil {
 		t.Fatalf("failed to create specs dir: %v", err)
 	}
+	writeSpecTestContract(t, vbDir)
 
 	opts := config.New()
 	if err := opts.Init(tmpDir, false, false, false, ""); err != nil {

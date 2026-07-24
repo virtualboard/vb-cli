@@ -2,1686 +2,1610 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/virtualboard/vb-cli/internal/config"
-	"github.com/virtualboard/vb-cli/internal/testutil"
+	"github.com/virtualboard/vb-cli/internal/util"
 )
 
-// mockHTTPResponse creates a mock HTTP response
-type mockHTTPResponse struct {
-	body       string
-	statusCode int
-	err        error
+const (
+	testCursorRule = "---\ndescription: VirtualBoard\n---\n"
+	testOpenSkill  = "---\nname: virtualboard\n---\n# VirtualBoard\n"
+)
+
+func initInstallOptions(t *testing.T, root string, jsonOutput, dryRun bool) *config.Options {
+	t.Helper()
+	opts := config.New()
+	if err := opts.Init(root, jsonOutput, false, dryRun, ""); err != nil {
+		t.Fatalf("initialize options: %v", err)
+	}
+	config.SetCurrent(opts)
+	t.Cleanup(func() { config.SetCurrent(nil) })
+	return opts
 }
 
-func (m *mockHTTPResponse) Read(p []byte) (n int, err error) {
-	return strings.NewReader(m.body).Read(p)
+func newNestedInstallWorkspace(t *testing.T, jsonOutput, dryRun bool) (string, string, *config.Options) {
+	t.Helper()
+	appRoot := t.TempDir()
+	vbRoot := filepath.Join(appRoot, ".virtualboard")
+	if err := os.MkdirAll(vbRoot, 0o750); err != nil {
+		t.Fatalf("create nested VirtualBoard workspace: %v", err)
+	}
+	return appRoot, vbRoot, initInstallOptions(t, appRoot, jsonOutput, dryRun)
 }
 
-func (m *mockHTTPResponse) Close() error {
-	return nil
+func newTemplateInstallWorkspace(t *testing.T, jsonOutput, dryRun bool) (string, *config.Options) {
+	t.Helper()
+	root := t.TempDir()
+	writeInstallFile(t, filepath.Join(root, "virtualboard.json"), "{}\n", 0o600)
+	if err := os.MkdirAll(filepath.Join(root, "features"), 0o750); err != nil {
+		t.Fatalf("create template features directory: %v", err)
+	}
+	return root, initInstallOptions(t, root, jsonOutput, dryRun)
 }
 
-// Test install command structure
-func TestInstallCommandStructure(t *testing.T) {
+func writeInstallFile(t *testing.T, path, content string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatalf("create parent for %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func writeCursorSource(t *testing.T, vbRoot, content string, mode os.FileMode) string {
+	t.Helper()
+	path := filepath.Join(vbRoot, filepath.FromSlash(cursorIntegrationSource))
+	writeInstallFile(t, path, content, mode)
+	setCursorDigest(t, content)
+	return path
+}
+
+func setCursorDigest(t *testing.T, content string) {
+	t.Helper()
+	digest := sha256.Sum256([]byte(content))
+	original := cursorIntegrationSHA256
+	cursorIntegrationSHA256 = fmt.Sprintf("%x", digest)
+	t.Cleanup(func() { cursorIntegrationSHA256 = original })
+}
+
+func writeOpenCodeSource(t *testing.T, vbRoot string, extra map[string]string) string {
+	t.Helper()
+	root := filepath.Join(vbRoot, filepath.FromSlash(openCodeIntegrationRoot))
+	contents := map[string]string{openCodeRequiredSkill: testOpenSkill}
+	for rel, content := range extra {
+		contents[filepath.ToSlash(rel)] = content
+	}
+	for rel, content := range contents {
+		writeInstallFile(t, filepath.Join(root, filepath.FromSlash(rel)), content, 0o777)
+	}
+	setOpenCodeManifest(t, contents)
+	return root
+}
+
+func setOpenCodeManifest(t *testing.T, contents map[string]string) {
+	t.Helper()
+	paths := make([]string, 0, len(contents))
+	for path := range contents {
+		paths = append(paths, filepath.ToSlash(path))
+	}
+	sort.Strings(paths)
+	entries := make([]integrationManifestEntry, 0, len(paths))
+	for _, path := range paths {
+		digest := sha256.Sum256([]byte(contents[path]))
+		entries = append(entries, integrationManifestEntry{Path: path, SHA256: fmt.Sprintf("%x", digest)})
+	}
+	original := openCodeIntegrationManifest
+	openCodeIntegrationManifest = entries
+	t.Cleanup(func() { openCodeIntegrationManifest = original })
+}
+
+func runInstall(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	cmd := newInstallCommand()
+	cmd.SetArgs(args)
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	err := cmd.Execute()
+	return output.String(), err
+}
+
+func readInstallFile(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(content)
+}
+
+func parseInstallJSON(t *testing.T, output string) map[string]interface{} {
+	t.Helper()
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("parse JSON response %q: %v", output, err)
+	}
+	return result
+}
+
+func TestInstallCommandStructureAndArguments(t *testing.T) {
 	cmd := newInstallCommand()
 	if cmd.Use != "install <ide>" {
-		t.Errorf("expected Use to be 'install <ide>', got %s", cmd.Use)
+		t.Fatalf("Use = %q, want install <ide>", cmd.Use)
 	}
-	if cmd.Short == "" {
-		t.Error("expected Short description to be set")
+	if cmd.Short == "" || !strings.Contains(cmd.Long, "compiled path/SHA-256 inventory") {
+		t.Fatalf("install command help does not describe authenticated integrations")
 	}
-}
-
-func TestInstallCommand_UnsupportedIDE(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"unsupported"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error for unsupported IDE")
-	}
-	if ExitCode(err) != ExitCodeValidation {
-		t.Errorf("expected validation exit code, got %d", ExitCode(err))
-	}
-	if !strings.Contains(err.Error(), "unsupported IDE") {
-		t.Errorf("expected error message to mention unsupported IDE, got: %s", err.Error())
-	}
-}
-
-func TestInstallCommand_MissingArgument(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error for missing argument")
-	}
-}
-
-// Claude Code installation tests
-func TestInstallClaudeCode_NotInstalled(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock exec.LookPath to return error (claude not found)
-	original := execLookPath
-	execLookPath = func(file string) (string, error) {
-		return "", errors.New("executable file not found")
-	}
-	t.Cleanup(func() { execLookPath = original })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when claude is not installed")
-	}
-	if ExitCode(err) != ExitCodeNotFound {
-		t.Errorf("expected not found exit code, got %d", ExitCode(err))
-	}
-	if !strings.Contains(err.Error(), "Claude Code CLI") {
-		t.Errorf("expected error message to mention Claude Code CLI, got: %s", err.Error())
-	}
-}
-
-func TestInstallClaudeCode_DryRun(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, true) // dry-run
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock exec.LookPath to find claude
-	original := execLookPath
-	execLookPath = func(file string) (string, error) {
-		if file == "claude" {
-			return "/usr/local/bin/claude", nil
-		}
-		return "", errors.New("not found")
-	}
-	t.Cleanup(func() { execLookPath = original })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success in dry-run, got %v", err)
+	if cmd.Flags().Lookup("force") == nil {
+		t.Fatal("install command must expose --force")
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("failed to parse JSON output: %v", err)
-	}
-
-	if result["success"] != true {
-		t.Error("expected success to be true")
-	}
-	data := result["data"].(map[string]interface{})
-	if data["ide"] != "claude" {
-		t.Errorf("expected ide to be 'claude', got %v", data["ide"])
-	}
-}
-
-func TestInstallClaudeCode_Success(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock exec.LookPath to find claude
-	originalLookPath := execLookPath
-	execLookPath = func(file string) (string, error) {
-		if file == "claude" {
-			return "/usr/local/bin/claude", nil
-		}
-		return "", errors.New("not found")
-	}
-	t.Cleanup(func() { execLookPath = originalLookPath })
-
-	// Mock execCommand to simulate successful plugin commands
-	commandsRun := []string{}
-	originalExec := execCommand
-	execCommand = func(name string, args ...string) ([]byte, error) {
-		commandsRun = append(commandsRun, name+" "+strings.Join(args, " "))
-		return []byte("success"), nil
-	}
-	t.Cleanup(func() { execCommand = originalExec })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	// Verify both commands were run
-	if len(commandsRun) != 2 {
-		t.Errorf("expected 2 commands to be run, got %d", len(commandsRun))
-	}
-	if !strings.Contains(commandsRun[0], "marketplace add") {
-		t.Errorf("expected first command to be marketplace add, got: %s", commandsRun[0])
-	}
-	if !strings.Contains(commandsRun[1], "plugin install") {
-		t.Errorf("expected second command to be plugin install, got: %s", commandsRun[1])
-	}
-}
-
-func TestInstallClaudeCode_MarketplaceAddFails(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	originalLookPath := execLookPath
-	execLookPath = func(file string) (string, error) {
-		return "/usr/local/bin/claude", nil
-	}
-	t.Cleanup(func() { execLookPath = originalLookPath })
-
-	originalExec := execCommand
-	execCommand = func(name string, args ...string) ([]byte, error) {
-		if strings.Contains(strings.Join(args, " "), "marketplace") {
-			return []byte("error: network failure"), errors.New("command failed")
-		}
-		return []byte("success"), nil
-	}
-	t.Cleanup(func() { execCommand = originalExec })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when marketplace add fails")
-	}
-	if ExitCode(err) != ExitCodeExternalCommand {
-		t.Errorf("expected external command exit code, got %d", ExitCode(err))
-	}
-}
-
-func TestInstallClaudeCode_PluginInstallFails(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	originalLookPath := execLookPath
-	execLookPath = func(file string) (string, error) {
-		return "/usr/local/bin/claude", nil
-	}
-	t.Cleanup(func() { execLookPath = originalLookPath })
-
-	callCount := 0
-	originalExec := execCommand
-	execCommand = func(name string, args ...string) ([]byte, error) {
-		callCount++
-		if callCount == 2 { // Second call (plugin install)
-			return []byte("error: install failed"), errors.New("command failed")
-		}
-		return []byte("success"), nil
-	}
-	t.Cleanup(func() { execCommand = originalExec })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when plugin install fails")
-	}
-	if ExitCode(err) != ExitCodeExternalCommand {
-		t.Errorf("expected external command exit code, got %d", ExitCode(err))
-	}
-}
-
-// Cursor installation tests
-func TestInstallCursor_NoVirtualBoard(t *testing.T) {
-	// Create a fixture without .virtualboard
 	root := t.TempDir()
-	opts := config.New()
-	if err := opts.Init(root, false, false, false, ""); err != nil {
-		t.Fatalf("failed to init options: %v", err)
+	initInstallOptions(t, root, false, false)
+	if _, err := runInstall(t); err == nil {
+		t.Fatal("missing IDE argument should fail")
 	}
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when .virtualboard doesn't exist")
-	}
-	if ExitCode(err) != ExitCodeValidation {
-		t.Errorf("expected validation exit code, got %d", ExitCode(err))
+	_, err := runInstall(t, "unsupported")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "unsupported IDE") {
+		t.Fatalf("unsupported IDE error = %v", err)
 	}
 }
 
-func TestInstallCursor_DryRun(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, true) // dry-run
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success in dry-run, got %v", err)
+func TestCompiledIntegrationAuthorizationMatchesTemplateRelease(t *testing.T) {
+	if claudeMarketplaceSource != "virtualboard/template-base#v0.8.0" {
+		t.Fatalf("Claude marketplace source = %q", claudeMarketplaceSource)
 	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("failed to parse JSON output: %v", err)
+	if claudePluginIdentifier != "virtualboard@virtualboard-marketplace" {
+		t.Fatalf("Claude plugin identifier = %q", claudePluginIdentifier)
 	}
-
-	if result["success"] != true {
-		t.Error("expected success to be true")
+	if cursorIntegrationSHA256 != "d047218c7da962b57bf2f827f6ccf654edb2c01aefa9b1bb52bb09de80a30285" {
+		t.Fatalf("unexpected compiled Cursor digest %q", cursorIntegrationSHA256)
+	}
+	if len(openCodeIntegrationManifest) != 1 ||
+		openCodeIntegrationManifest[0].Path != openCodeRequiredSkill ||
+		openCodeIntegrationManifest[0].SHA256 != "dce51b2e3e221d778184d055f549acbf0f595971e18961e6cc430ba9575e0001" {
+		t.Fatalf("unexpected compiled OpenCode inventory: %#v", openCodeIntegrationManifest)
 	}
 }
 
-func TestInstallCursor_Success(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("---\ndescription: VirtualBoard rule\n---")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	// Verify file was created
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules", cursorRuleFile)
-	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
-		t.Error("expected cursor rule file to be created")
+func TestInstallCommandRequiresInitializedConfig(t *testing.T) {
+	config.SetCurrent(nil)
+	if _, err := runInstall(t, "cursor"); err == nil {
+		t.Fatal("uninitialized configuration should fail")
 	}
 }
 
-func TestInstallCursor_FileExistsAndIdentical(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create existing cursor rules directory and file
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-	ruleContent := "existing content"
-	if err := os.WriteFile(filepath.Join(rulesPath, cursorRuleFile), []byte(ruleContent), 0o600); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
-	}
-
-	// Mock HTTP GET to return same content
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(ruleContent)),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "already up to date") {
-		t.Errorf("expected 'already up to date' message, got: %s", buf.String())
-	}
-}
-
-func TestInstallCursor_FileExistsAndDifferent_UserDeclines(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create existing file with different content
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesPath, cursorRuleFile), []byte("old content"), 0o600); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
-	}
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	// Mock confirmation to decline
-	originalConfirm := confirmReplace
-	confirmReplace = func(opts *config.Options, prompt string) (bool, error) {
-		return false, nil
-	}
-	t.Cleanup(func() { confirmReplace = originalConfirm })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success when user cancels, got %v", err)
-	}
-
-	// Verify file was NOT modified
-	content, _ := os.ReadFile(filepath.Join(rulesPath, cursorRuleFile))
-	if string(content) != "old content" {
-		t.Error("file should not have been modified when user declines")
-	}
-}
-
-func TestInstallCursor_FileExistsAndDifferent_UserAccepts(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create existing file with different content
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesPath, cursorRuleFile), []byte("old content"), 0o600); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
-	}
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	// Mock confirmation to accept
-	originalConfirm := confirmReplace
-	confirmReplace = func(opts *config.Options, prompt string) (bool, error) {
-		return true, nil
-	}
-	t.Cleanup(func() { confirmReplace = originalConfirm })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	// Verify file was modified
-	content, _ := os.ReadFile(filepath.Join(rulesPath, cursorRuleFile))
-	if string(content) != "new content" {
-		t.Errorf("expected new content, got: %s", string(content))
-	}
-}
-
-func TestInstallCursor_ForceFlag(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create existing file with different content
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesPath, cursorRuleFile), []byte("old content"), 0o600); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
-	}
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	cmd.Flags().Set("force", "true")
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success with --force, got %v", err)
-	}
-
-	// Verify file was modified
-	content, _ := os.ReadFile(filepath.Join(rulesPath, cursorRuleFile))
-	if string(content) != "new content" {
-		t.Errorf("expected new content with --force, got: %s", string(content))
-	}
-}
-
-func TestInstallCursor_HTTPError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock HTTP GET to return error
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return nil, errors.New("network error")
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when HTTP fails")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
-	}
-}
-
-func TestInstallCursor_HTTPNotOK(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock HTTP GET to return 404
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusNotFound,
-			Body:       io.NopCloser(strings.NewReader("not found")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when HTTP returns 404")
-	}
-}
-
-func TestInstallCursor_ConfirmError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create existing file
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rulesPath, cursorRuleFile), []byte("old content"), 0o600); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
-	}
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	// Mock confirmation to return error
-	originalConfirm := confirmReplace
-	confirmReplace = func(opts *config.Options, prompt string) (bool, error) {
-		return false, errors.New("stdin closed")
-	}
-	t.Cleanup(func() { confirmReplace = originalConfirm })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when confirmation fails")
-	}
-}
-
-// OpenCode installation tests
-func TestInstallOpenCode_NoVirtualBoard(t *testing.T) {
-	root := t.TempDir()
-	opts := config.New()
-	if err := opts.Init(root, false, false, false, ""); err != nil {
-		t.Fatalf("failed to init options: %v", err)
-	}
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when .virtualboard doesn't exist")
-	}
-	if ExitCode(err) != ExitCodeValidation {
-		t.Errorf("expected validation exit code, got %d", ExitCode(err))
-	}
-}
-
-func TestInstallOpenCode_NoAgents(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Remove agents directory
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	os.RemoveAll(agentsPath)
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when .virtualboard/agents doesn't exist")
-	}
-	if ExitCode(err) != ExitCodeValidation {
-		t.Errorf("expected validation exit code, got %d", ExitCode(err))
-	}
-}
-
-func TestInstallOpenCode_DryRun(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, true) // dry-run
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create agents directory
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o750); err != nil {
-		t.Fatalf("failed to create agents dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "test.md"), []byte("test"), 0o600); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success in dry-run, got %v", err)
-	}
-
-	// Verify .opencode was NOT created
-	opencodeDir := filepath.Join(fix.Root, ".opencode")
-	if _, err := os.Stat(opencodeDir); err == nil {
-		t.Error(".opencode should not be created in dry-run mode")
-	}
-}
-
-func TestInstallOpenCode_Success(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create agents directory with files
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o750); err != nil {
-		t.Fatalf("failed to create agents dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "pm.md"), []byte("# PM Agent"), 0o600); err != nil {
-		t.Fatalf("failed to write pm.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "dev.md"), []byte("# Dev Agent"), 0o600); err != nil {
-		t.Fatalf("failed to write dev.md: %v", err)
-	}
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	// Verify files were copied
-	destDir := filepath.Join(fix.Root, ".opencode", "agent")
-	pmFile := filepath.Join(destDir, "pm.md")
-	devFile := filepath.Join(destDir, "dev.md")
-
-	if _, err := os.Stat(pmFile); os.IsNotExist(err) {
-		t.Error("expected pm.md to be copied")
-	}
-	if _, err := os.Stat(devFile); os.IsNotExist(err) {
-		t.Error("expected dev.md to be copied")
-	}
-
-	content, _ := os.ReadFile(pmFile)
-	if string(content) != "# PM Agent" {
-		t.Errorf("expected pm.md content to match, got: %s", string(content))
-	}
-}
-
-func TestInstallOpenCode_SuccessWithSubdirectory(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create nested agents directory structure
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	subDir := filepath.Join(agentsPath, "subdir")
-	if err := os.MkdirAll(subDir, 0o750); err != nil {
-		t.Fatalf("failed to create subdirectory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "root.md"), []byte("root"), 0o600); err != nil {
-		t.Fatalf("failed to write root.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(subDir, "nested.md"), []byte("nested"), 0o600); err != nil {
-		t.Fatalf("failed to write nested.md: %v", err)
-	}
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	// Verify nested structure was copied
-	destNestedFile := filepath.Join(fix.Root, ".opencode", "agent", "subdir", "nested.md")
-	if _, err := os.Stat(destNestedFile); os.IsNotExist(err) {
-		t.Error("expected nested file to be copied")
-	}
-
-	content, _ := os.ReadFile(destNestedFile)
-	if string(content) != "nested" {
-		t.Errorf("expected nested content, got: %s", string(content))
-	}
-}
-
-// copyDir function tests
-func TestCopyDir_ReadError(t *testing.T) {
-	// Test with non-existent source
-	err := copyDir("/nonexistent/path", t.TempDir())
-	if err == nil {
-		t.Error("expected error for non-existent source")
-	}
-}
-
-func TestCopyDir_CreateDirError(t *testing.T) {
-	srcDir := t.TempDir()
-	subDir := filepath.Join(srcDir, "subdir")
-	if err := os.MkdirAll(subDir, 0o750); err != nil {
-		t.Fatalf("failed to create subdir: %v", err)
-	}
-
-	// Create a file where directory should be created
-	destDir := t.TempDir()
-	destSubDir := filepath.Join(destDir, "subdir")
-	if err := os.WriteFile(destSubDir, []byte("file"), 0o600); err != nil {
-		t.Fatalf("failed to create blocking file: %v", err)
-	}
-
-	err := copyDir(srcDir, destDir)
-	if err == nil {
-		t.Error("expected error when directory creation fails")
-	}
-}
-
-// fetchCursorRule tests
-func TestFetchCursorRule_Success(t *testing.T) {
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("rule content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	content, err := fetchCursorRule()
-	if err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-	if string(content) != "rule content" {
-		t.Errorf("expected 'rule content', got: %s", string(content))
-	}
-}
-
-func TestFetchCursorRule_HTTPError(t *testing.T) {
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return nil, errors.New("network error")
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	_, err := fetchCursorRule()
-	if err == nil {
-		t.Error("expected error for HTTP failure")
-	}
-}
-
-func TestFetchCursorRule_NonOKStatus(t *testing.T) {
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusInternalServerError,
-			Body:       io.NopCloser(strings.NewReader("error")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	_, err := fetchCursorRule()
-	if err == nil {
-		t.Error("expected error for non-OK status")
-	}
-}
-
-// Test IDE case insensitivity
-func TestInstallCommand_CaseInsensitive(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, true) // dry-run
-	opts.JSONOutput = true
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create agents directory
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o750); err != nil {
-		t.Fatalf("failed to create agents dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "test.md"), []byte("test"), 0o600); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	testCases := []string{"OPENCODE", "OpenCode", "openCode", "CURSOR", "Cursor", "CLAUDE", "Claude"}
-
-	for _, tc := range testCases {
-		t.Run(tc, func(t *testing.T) {
-			// Mock necessary functions based on IDE
-			if strings.ToLower(tc) == "claude" {
-				originalLookPath := execLookPath
-				execLookPath = func(file string) (string, error) {
-					return "/usr/local/bin/claude", nil
-				}
-				t.Cleanup(func() { execLookPath = originalLookPath })
+func TestInstallCommandRecognizesIDECaseInsensitively(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, true)
+	writeCursorSource(t, vbRoot, testCursorRule, 0o600)
+	writeOpenCodeSource(t, vbRoot, nil)
+
+	originalLookPath := execLookPath
+	execLookPath = func(file string) (string, error) { return "/usr/bin/claude", nil }
+	t.Cleanup(func() { execLookPath = originalLookPath })
+
+	for _, ide := range []string{"CURSOR", "Cursor", "OPENCODE", "OpenCode", "CLAUDE", "Claude"} {
+		t.Run(ide, func(t *testing.T) {
+			output, err := runInstall(t, ide)
+			if err != nil {
+				t.Fatalf("install %s: %v", ide, err)
 			}
+			if parseInstallJSON(t, output)["success"] != true {
+				t.Fatalf("install %s did not report success", ide)
+			}
+		})
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".cursor")); !os.IsNotExist(err) {
+		t.Fatal("dry-run case-insensitivity test must not create integrations")
+	}
+}
 
-			cmd := newInstallCommand()
-			cmd.SetArgs([]string{tc})
-			var buf bytes.Buffer
-			cmd.SetOut(&buf)
-			cmd.SetErr(&buf)
+func TestInstallClaudeCodeNotInstalled(t *testing.T) {
+	initInstallOptions(t, t.TempDir(), false, false)
+	original := execLookPath
+	execLookPath = func(string) (string, error) { return "", errors.New("not found") }
+	t.Cleanup(func() { execLookPath = original })
 
-			// Should not fail due to case
-			err := cmd.Execute()
-			if err != nil && strings.Contains(err.Error(), "unsupported IDE") {
-				t.Errorf("IDE '%s' should be recognized (case insensitive)", tc)
+	_, err := runInstall(t, "claude")
+	if err == nil || ExitCode(err) != ExitCodeNotFound || !strings.Contains(err.Error(), "Claude Code CLI") {
+		t.Fatalf("missing Claude error = %v", err)
+	}
+}
+
+func TestInstallClaudeCodeDryRun(t *testing.T) {
+	initInstallOptions(t, t.TempDir(), true, true)
+	originalLookPath := execLookPath
+	originalExec := execCommand
+	execLookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
+	execCommand = func(string, ...string) ([]byte, error) {
+		t.Fatal("dry-run must not execute Claude commands")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		execLookPath = originalLookPath
+		execCommand = originalExec
+	})
+
+	output, err := runInstall(t, "claude")
+	if err != nil {
+		t.Fatalf("Claude dry-run: %v", err)
+	}
+	result := parseInstallJSON(t, output)
+	data := result["data"].(map[string]interface{})
+	if data["ide"] != "claude" || len(data["commands"].([]interface{})) != 2 {
+		t.Fatalf("unexpected Claude dry-run data: %#v", data)
+	}
+	wantCommands := []string{
+		"claude plugin marketplace add " + claudeMarketplaceSource,
+		"claude plugin install " + claudePluginIdentifier,
+	}
+	for index, want := range wantCommands {
+		if got := data["commands"].([]interface{})[index]; got != want {
+			t.Fatalf("Claude dry-run command %d = %q, want %q", index, got, want)
+		}
+	}
+	if data["framework_release"] != templateRelease {
+		t.Fatalf("Claude dry-run release = %#v, want %s", data["framework_release"], templateRelease)
+	}
+}
+
+func TestInstallClaudeCodeSuccess(t *testing.T) {
+	initInstallOptions(t, t.TempDir(), true, false)
+	originalLookPath := execLookPath
+	originalExec := execCommand
+	execLookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
+	type invocation struct {
+		name string
+		args []string
+	}
+	var calls []invocation
+	execCommand = func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, invocation{name: name, args: append([]string(nil), args...)})
+		return []byte("ok"), nil
+	}
+	t.Cleanup(func() {
+		execLookPath = originalLookPath
+		execCommand = originalExec
+	})
+
+	output, err := runInstall(t, "claude")
+	if err != nil {
+		t.Fatalf("install Claude: %v", err)
+	}
+	want := []invocation{
+		{name: "/usr/bin/claude", args: []string{"plugin", "marketplace", "add", claudeMarketplaceSource}},
+		{name: "/usr/bin/claude", args: []string{"plugin", "install", claudePluginIdentifier}},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("unexpected Claude commands: %#v", calls)
+	}
+	if parseInstallJSON(t, output)["success"] != true {
+		t.Fatal("Claude success response is not successful")
+	}
+}
+
+func TestInstallClaudeCodePlainTextSuccess(t *testing.T) {
+	initInstallOptions(t, t.TempDir(), false, false)
+	originalLookPath := execLookPath
+	originalExec := execCommand
+	execLookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
+	execCommand = func(string, ...string) ([]byte, error) { return []byte("ok"), nil }
+	t.Cleanup(func() {
+		execLookPath = originalLookPath
+		execCommand = originalExec
+	})
+
+	output, err := runInstall(t, "claude")
+	if err != nil || !strings.Contains(output, "plugin installed successfully") {
+		t.Fatalf("plain-text Claude install: output=%q err=%v", output, err)
+	}
+}
+
+func TestInstallClaudeCodeCommandFailures(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		failureCall int
+		message     string
+	}{
+		{name: "marketplace", failureCall: 1, message: "failed to add VirtualBoard"},
+		{name: "plugin", failureCall: 2, message: "failed to install VirtualBoard plugin"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			initInstallOptions(t, t.TempDir(), true, false)
+			originalLookPath := execLookPath
+			originalExec := execCommand
+			execLookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
+			calls := 0
+			execCommand = func(string, ...string) ([]byte, error) {
+				calls++
+				if calls == test.failureCall {
+					return []byte("command rejected"), errors.New("exit 1")
+				}
+				return []byte("ok"), nil
+			}
+			t.Cleanup(func() {
+				execLookPath = originalLookPath
+				execCommand = originalExec
+			})
+
+			_, err := runInstall(t, "claude")
+			if err == nil || ExitCode(err) != ExitCodeExternalCommand || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("Claude %s failure = %v", test.name, err)
 			}
 		})
 	}
 }
 
-// Test confirmReplaceFunc
-func TestConfirmReplaceFunc_JSONMode(t *testing.T) {
-	opts := &config.Options{JSONOutput: true}
-	result, err := confirmReplaceFunc(opts, "test prompt")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if !result {
-		t.Error("expected true in JSON mode")
+func TestExecCommandFunc(t *testing.T) {
+	output, err := execCommandFunc("echo", "hello")
+	if err != nil || !strings.Contains(string(output), "hello") {
+		t.Fatalf("execCommandFunc: output=%q err=%v", output, err)
 	}
 }
 
-// Test confirmReplaceFunc non-JSON mode
-func TestConfirmReplaceFunc_NonJSONMode(t *testing.T) {
-	// Mock promptYesNo
-	originalPrompt := promptYesNo
-	promptYesNo = func(prompt string) (bool, error) {
-		return true, nil
+func TestConfirmReplaceFunc(t *testing.T) {
+	if confirmed, err := confirmReplaceFunc(&config.Options{JSONOutput: true}, "ignored"); err != nil || confirmed {
+		t.Fatalf("JSON mode must not silently confirm replacement: %v, %v", confirmed, err)
 	}
-	t.Cleanup(func() { promptYesNo = originalPrompt })
 
-	opts := &config.Options{JSONOutput: false}
-	result, err := confirmReplaceFunc(opts, "test prompt")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	original := promptYesNo
+	t.Cleanup(func() { promptYesNo = original })
+	for _, want := range []bool{true, false} {
+		promptYesNo = func(string) (bool, error) { return want, nil }
+		confirmed, err := confirmReplaceFunc(&config.Options{}, "replace?")
+		if err != nil || confirmed != want {
+			t.Fatalf("interactive confirmation = %v, %v; want %v", confirmed, err, want)
+		}
 	}
-	if !result {
-		t.Error("expected true from mocked prompt")
+	promptYesNo = func(string) (bool, error) { return false, errors.New("stdin closed") }
+	if _, err := confirmReplaceFunc(&config.Options{}, "replace?"); err == nil {
+		t.Fatal("prompt error must be propagated")
 	}
 }
 
-// Test confirmReplaceFunc non-JSON mode returns false
-func TestConfirmReplaceFunc_NonJSONMode_ReturnsFalse(t *testing.T) {
-	// Mock promptYesNo to return false
-	originalPrompt := promptYesNo
-	promptYesNo = func(prompt string) (bool, error) {
+func TestWorkspaceRootResolution(t *testing.T) {
+	templateRoot := t.TempDir()
+	writeInstallFile(t, filepath.Join(templateRoot, "virtualboard.json"), "{}", 0o600)
+	contractDirectoryRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(contractDirectoryRoot, "virtualboard.json"), 0o750); err != nil {
+		t.Fatalf("create contract-shaped directory: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		root        string
+		projectRoot string
+		vbRoot      string
+	}{
+		{name: "nested", root: filepath.Join("/app", ".virtualboard"), projectRoot: filepath.Dir(filepath.Join("/app", ".virtualboard")), vbRoot: filepath.Join("/app", ".virtualboard")},
+		{name: "template", root: templateRoot, projectRoot: templateRoot, vbRoot: templateRoot},
+		{name: "default nested", root: contractDirectoryRoot, projectRoot: contractDirectoryRoot, vbRoot: filepath.Join(contractDirectoryRoot, ".virtualboard")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := &config.Options{RootDir: test.root}
+			if got := getProjectRoot(opts); got != test.projectRoot {
+				t.Fatalf("getProjectRoot() = %q, want %q", got, test.projectRoot)
+			}
+			if got := getVirtualBoardRoot(opts); got != test.vbRoot {
+				t.Fatalf("getVirtualBoardRoot() = %q, want %q", got, test.vbRoot)
+			}
+		})
+	}
+}
+
+func TestInstallCursorRequiresWorkspaceAndSource(t *testing.T) {
+	t.Run("workspace missing", func(t *testing.T) {
+		initInstallOptions(t, t.TempDir(), false, false)
+		_, err := runInstall(t, "cursor")
+		if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "workspace not found") {
+			t.Fatalf("missing workspace error = %v", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string)
+		want  string
+	}{
+		{name: "source missing", setup: func(*testing.T, string) {}, want: "unavailable"},
+		{name: "source empty", setup: func(t *testing.T, root string) { writeCursorSource(t, root, "", 0o600) }, want: "empty"},
+		{name: "source is directory", setup: func(t *testing.T, root string) {
+			if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(cursorIntegrationSource)), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "not a regular file"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+			test.setup(t, vbRoot)
+			_, err := runInstall(t, "cursor")
+			if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s error = %v", test.name, err)
+			}
+		})
+	}
+}
+
+func TestInstallCursorDryRunUsesScaffoldedSource(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, true)
+	source := writeCursorSource(t, vbRoot, testCursorRule, 0o640)
+
+	output, err := runInstall(t, "cursor")
+	if err != nil {
+		t.Fatalf("Cursor dry-run: %v", err)
+	}
+	data := parseInstallJSON(t, output)["data"].(map[string]interface{})
+	if data["source_file"] != source {
+		t.Fatalf("dry-run source = %v, want %s", data["source_file"], source)
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".cursor")); !os.IsNotExist(err) {
+		t.Fatal("Cursor dry-run created .cursor")
+	}
+}
+
+func TestInstallCursorRejectsModifiedAuthenticatedSource(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, true)
+	source := writeCursorSource(t, vbRoot, testCursorRule, 0o644)
+	if err := os.WriteFile(source, []byte("tampered rule\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runInstall(t, "cursor")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("tampered Cursor source error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".cursor")); !os.IsNotExist(err) {
+		t.Fatalf("tampered Cursor source created destination: %v", err)
+	}
+}
+
+func TestInstallCursorNestedWorkspaceEndToEnd(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	source := writeCursorSource(t, vbRoot, testCursorRule, 0o640)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+
+	output, err := runInstall(t, "cursor")
+	if err != nil {
+		t.Fatalf("install Cursor: %v", err)
+	}
+	if got := readInstallFile(t, target); got != testCursorRule {
+		t.Fatalf("Cursor target content = %q", got)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat Cursor target: %v", err)
+	}
+	if !integrationFileModeIsSafe(info.Mode()) {
+		t.Fatalf("Cursor target mode = %v; want %v", info.Mode().Perm(), safeIntegrationFileMode)
+	}
+	data := parseInstallJSON(t, output)["data"].(map[string]interface{})
+	if data["source_file"] != source || data["target_file"] != target || data["installed"] != true {
+		t.Fatalf("unexpected Cursor response: %#v", data)
+	}
+}
+
+func TestInstallCursorTemplateWorkspaceEndToEnd(t *testing.T) {
+	root, _ := newTemplateInstallWorkspace(t, false, false)
+	writeCursorSource(t, root, testCursorRule, 0o600)
+
+	output, err := runInstall(t, "cursor")
+	if err != nil {
+		t.Fatalf("install Cursor from template layout: %v", err)
+	}
+	target := filepath.Join(root, ".cursor", "rules", cursorRuleFile)
+	if readInstallFile(t, target) != testCursorRule || !strings.Contains(output, "rule installed") {
+		t.Fatalf("template-layout Cursor install output=%q", output)
+	}
+}
+
+func TestInstallCursorIdempotent(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeCursorSource(t, vbRoot, testCursorRule, 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, testCursorRule, safeIntegrationFileMode)
+
+	original := confirmReplace
+	confirmReplace = func(*config.Options, string) (bool, error) {
+		t.Fatal("identical Cursor rule must not prompt")
 		return false, nil
 	}
-	t.Cleanup(func() { promptYesNo = originalPrompt })
+	t.Cleanup(func() { confirmReplace = original })
 
-	opts := &config.Options{JSONOutput: false}
-	result, err := confirmReplaceFunc(opts, "test prompt")
+	output, err := runInstall(t, "cursor")
+	if err != nil || !strings.Contains(output, "already up to date") {
+		t.Fatalf("idempotent Cursor install: output=%q err=%v", output, err)
+	}
+	data := parseInstallJSON(t, output)["data"].(map[string]interface{})
+	if data["changed"] != false {
+		t.Fatalf("idempotent Cursor response = %#v", data)
+	}
+}
+
+func TestInstallCursorNormalizesUnsafeModeWithoutPrompt(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeCursorSource(t, vbRoot, testCursorRule, 0o777)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, testCursorRule, 0o777)
+
+	original := confirmReplace
+	confirmReplace = func(*config.Options, string) (bool, error) {
+		t.Fatal("mode-only normalization must not prompt for content replacement")
+		return false, nil
+	}
+	t.Cleanup(func() { confirmReplace = original })
+
+	if _, err := runInstall(t, "cursor"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(target)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatal(err)
 	}
-	if result {
-		t.Error("expected false from mocked prompt")
-	}
-}
-
-// Test execCommandFunc with valid command
-func TestExecCommandFunc(t *testing.T) {
-	// Test with a command that exists on all systems
-	output, err := execCommandFunc("echo", "hello")
-	if err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-	if !strings.Contains(string(output), "hello") {
-		t.Errorf("expected 'hello' in output, got: %s", string(output))
+	if !integrationFileModeIsSafe(info.Mode()) {
+		t.Fatalf("normalized Cursor mode = %v, want %v", info.Mode().Perm(), safeIntegrationFileMode)
 	}
 }
 
-// Test Cursor installation with read error on existing file
-func TestInstallCursor_ReadExistingFileError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallCursorConflictDeclineIsFailClosed(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeCursorSource(t, vbRoot, "new rule\n", 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, "local rule\n", 0o600)
 
-	// Create a directory where the file should be (to cause read error)
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	targetFilePath := filepath.Join(rulesPath, cursorRuleFile)
-	if err := os.MkdirAll(targetFilePath, 0o750); err != nil {
-		t.Fatalf("failed to create directory: %v", err)
+	original := confirmReplace
+	confirmReplace = func(_ *config.Options, prompt string) (bool, error) {
+		if !strings.Contains(prompt, target) {
+			t.Fatalf("confirmation prompt does not identify target: %q", prompt)
+		}
+		return false, nil
 	}
+	t.Cleanup(func() { confirmReplace = original })
 
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
+	output, err := runInstall(t, "cursor")
+	if err != nil || !strings.Contains(output, "cancelled") {
+		t.Fatalf("declined Cursor conflict: output=%q err=%v", output, err)
 	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when reading existing file fails")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
+	if got := readInstallFile(t, target); got != "local rule\n" {
+		t.Fatalf("declined Cursor conflict mutated target to %q", got)
 	}
 }
 
-// Test response output in plain text mode
-func TestInstallOpenCode_PlainTextOutput(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = false
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallCursorConflictAcceptAndForce(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "accept", args: []string{"cursor"}},
+		{name: "force", args: []string{"cursor", "--force"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+			writeCursorSource(t, vbRoot, "new rule\n", 0o600)
+			target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+			writeInstallFile(t, target, "local rule\n", 0o600)
 
-	// Create agents directory with files
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o750); err != nil {
-		t.Fatalf("failed to create agents dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "pm.md"), []byte("# PM Agent"), 0o600); err != nil {
-		t.Fatalf("failed to write pm.md: %v", err)
-	}
+			original := confirmReplace
+			confirmReplace = func(*config.Options, string) (bool, error) {
+				if test.name == "force" {
+					t.Fatal("--force must bypass confirmation")
+				}
+				return true, nil
+			}
+			t.Cleanup(func() { confirmReplace = original })
 
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "VirtualBoard agents installed") {
-		t.Errorf("expected success message in plain text output, got: %s", output)
+			if _, err := runInstall(t, test.args...); err != nil {
+				t.Fatalf("Cursor %s: %v", test.name, err)
+			}
+			if got := readInstallFile(t, target); got != "new rule\n" {
+				t.Fatalf("Cursor %s content = %q", test.name, got)
+			}
+		})
 	}
 }
 
-// Test Cursor read error for existing file but file is unreadable
-func TestInstallCursor_ExistingFileReadPermissionError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallCursorRestoresEditMadeAfterConsent(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeCursorSource(t, vbRoot, "new rule\n", 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, "approved old rule\n", 0o600)
 
-	// Create cursor rules directory
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-
-	// Create file with no read permissions
-	targetFile := filepath.Join(rulesPath, cursorRuleFile)
-	if err := os.WriteFile(targetFile, []byte("content"), 0o000); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
+	originalConfirm := confirmReplace
+	originalHook := afterCursorConsent
+	confirmReplace = func(*config.Options, string) (bool, error) { return true, nil }
+	afterCursorConsent = func() {
+		if err := os.WriteFile(target, []byte("racing edit\n"), 0o600); err != nil {
+			t.Fatalf("write racing Cursor edit: %v", err)
+		}
 	}
 	t.Cleanup(func() {
-		os.Chmod(targetFile, 0o644)
+		confirmReplace = originalConfirm
+		afterCursorConsent = originalHook
 	})
 
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
+	_, err := runInstall(t, "cursor")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "captured Cursor target differs") {
+		t.Fatalf("post-consent Cursor race error = %v", err)
 	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when reading file with no permissions")
+	if got := readInstallFile(t, target); got != "racing edit\n" {
+		t.Fatalf("post-consent Cursor race lost edit: %q", got)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".vb-cursor-recovery-*.md")); len(matches) != 0 {
+		t.Fatalf("successfully restored Cursor race left recovery files: %v", matches)
 	}
 }
 
-// Test OpenCode with file read error
-func TestInstallOpenCode_FileReadError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallCursorRetainsCapturedStateWhenTargetRecreated(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeCursorSource(t, vbRoot, "new rule\n", 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, "approved old rule\n", 0o600)
 
-	// Create agents directory with unreadable file
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o750); err != nil {
-		t.Fatalf("failed to create agents dir: %v", err)
-	}
-	unreadableFile := filepath.Join(agentsPath, "unreadable.md")
-	if err := os.WriteFile(unreadableFile, []byte("content"), 0o000); err != nil {
-		t.Fatalf("failed to write file: %v", err)
+	originalConfirm := confirmReplace
+	originalHook := afterCursorDestinationCaptured
+	confirmReplace = func(*config.Options, string) (bool, error) { return true, nil }
+	afterCursorDestinationCaptured = func() {
+		writeInstallFile(t, target, "concurrently recreated\n", 0o600)
 	}
 	t.Cleanup(func() {
-		os.Chmod(unreadableFile, 0o644)
+		confirmReplace = originalConfirm
+		afterCursorDestinationCaptured = originalHook
 	})
 
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when file cannot be read")
+	_, err := runInstall(t, "cursor")
+	if err == nil || !strings.Contains(err.Error(), "recovery data retained") {
+		t.Fatalf("Cursor capture-to-publish race error = %v", err)
 	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
+	if got := readInstallFile(t, target); got != "concurrently recreated\n" {
+		t.Fatalf("Cursor race replaced concurrent target: %q", got)
 	}
-}
-
-// Test FetchCursorRule with read body error
-func TestFetchCursorRule_ReadBodyError(t *testing.T) {
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(&errorReader{}),
-		}, nil
+	recovery, _ := filepath.Glob(filepath.Join(filepath.Dir(target), ".vb-cursor-recovery-*.md"))
+	if len(recovery) != 1 || readInstallFile(t, recovery[0]) != "approved old rule\n" {
+		t.Fatalf("Cursor recovery files = %v", recovery)
 	}
-	t.Cleanup(func() { httpGet = originalHTTP })
 
-	_, err := fetchCursorRule()
-	if err == nil {
-		t.Error("expected error when reading body fails")
+	afterCursorDestinationCaptured = nil
+	_, err = runInstall(t, "cursor", "--force")
+	if err == nil || !strings.Contains(err.Error(), "interrupted Cursor replacement") {
+		t.Fatalf("subsequent install ignored retained Cursor recovery: %v", err)
 	}
 }
 
-// errorReader is a mock reader that always returns an error
-type errorReader struct{}
-
-func (e *errorReader) Read(p []byte) (n int, err error) {
-	return 0, fmt.Errorf("read error")
-}
-
-// Test Claude Code with plain text output
-func TestInstallClaudeCode_PlainTextOutput(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = false
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Mock exec.LookPath to find claude
-	originalLookPath := execLookPath
-	execLookPath = func(file string) (string, error) {
-		return "/usr/local/bin/claude", nil
+func TestInstallCursorAbsentTargetPublicationIsExclusive(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeCursorSource(t, vbRoot, "new rule\n", 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	originalHook := afterCursorConsent
+	afterCursorConsent = func() {
+		writeInstallFile(t, target, "concurrently created\n", 0o600)
 	}
-	t.Cleanup(func() { execLookPath = originalLookPath })
+	t.Cleanup(func() { afterCursorConsent = originalHook })
 
-	// Mock execCommand
-	originalExec := execCommand
-	execCommand = func(name string, args ...string) ([]byte, error) {
-		return []byte("success"), nil
+	_, err := runInstall(t, "cursor")
+	if err == nil || !strings.Contains(err.Error(), "publish absent Cursor target exclusively") {
+		t.Fatalf("absent Cursor publication race error = %v", err)
 	}
-	t.Cleanup(func() { execCommand = originalExec })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "VirtualBoard plugin installed successfully") {
-		t.Errorf("expected success message in plain text output, got: %s", output)
+	if got := readInstallFile(t, target); got != "concurrently created\n" {
+		t.Fatalf("absent Cursor publication overwrote concurrent target: %q", got)
 	}
 }
 
-// Test Cursor with JSON auto-confirm
-func TestInstallCursor_JSONModeAutoConfirm(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = true // JSON mode auto-confirms
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallCursorConflictConfirmationError(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeCursorSource(t, vbRoot, "new\n", 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, "old\n", 0o600)
+	original := confirmReplace
+	confirmReplace = func(*config.Options, string) (bool, error) { return false, errors.New("stdin closed") }
+	t.Cleanup(func() { confirmReplace = original })
 
-	// Create existing file with different content
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
+	_, err := runInstall(t, "cursor")
+	if err == nil || ExitCode(err) != ExitCodeUnknown || !strings.Contains(err.Error(), "confirmation") {
+		t.Fatalf("Cursor confirmation error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(rulesPath, cursorRuleFile), []byte("old content"), 0o600); err != nil {
-		t.Fatalf("failed to write rule file: %v", err)
-	}
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("new content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success in JSON mode, got %v", err)
-	}
-
-	// Verify file was modified (auto-confirmed)
-	content, _ := os.ReadFile(filepath.Join(rulesPath, cursorRuleFile))
-	if string(content) != "new content" {
-		t.Error("expected file to be auto-updated in JSON mode")
+	if readInstallFile(t, target) != "old\n" {
+		t.Fatal("confirmation error mutated Cursor target")
 	}
 }
 
-// Test install command when config is not initialized
-func TestInstallCommand_ConfigNotInitialized(t *testing.T) {
-	// Clear current config
-	config.SetCurrent(nil)
+func TestInstallCursorJSONConflictRequiresForce(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeCursorSource(t, vbRoot, "new\n", 0o600)
+	target := filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)
+	writeInstallFile(t, target, "old\n", 0o600)
 
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"claude"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when config not initialized")
+	_, err := runInstall(t, "cursor")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("JSON Cursor conflict must require --force: %v", err)
+	}
+	if readInstallFile(t, target) != "old\n" {
+		t.Fatal("JSON Cursor conflict mutated the target without --force")
 	}
 }
 
-// Test getProjectRoot function
-func TestGetProjectRoot(t *testing.T) {
-	tests := []struct {
-		name     string
-		rootDir  string
-		expected string
+func TestInstallCursorFilesystemFailures(t *testing.T) {
+	t.Run("existing target is not readable as a file", func(t *testing.T) {
+		appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+		writeCursorSource(t, vbRoot, "new\n", 0o600)
+		if err := os.MkdirAll(filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runInstall(t, "cursor")
+		if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("Cursor existing-target error = %v", err)
+		}
+	})
+
+	t.Run("rules directory blocked", func(t *testing.T) {
+		appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+		writeCursorSource(t, vbRoot, "new\n", 0o600)
+		writeInstallFile(t, filepath.Join(appRoot, ".cursor"), "blocking file", 0o600)
+		_, err := runInstall(t, "cursor")
+		if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "parent is not a directory") {
+			t.Fatalf("Cursor directory error = %v", err)
+		}
+	})
+
+	t.Run("target is directory under force", func(t *testing.T) {
+		appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+		writeCursorSource(t, vbRoot, "new\n", 0o600)
+		if err := os.MkdirAll(filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runInstall(t, "cursor", "--force")
+		if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("Cursor atomic-write error = %v", err)
+		}
+	})
+}
+
+func TestInstallCursorRejectsDestinationSymlinks(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string, string) string
+		args  []string
 	}{
 		{
-			name:     "root is project directory",
-			rootDir:  "/project",
-			expected: "/project",
+			name: "cursor parent",
+			setup: func(t *testing.T, appRoot, outside string) string {
+				link := filepath.Join(appRoot, ".cursor")
+				if err := os.Symlink(outside, link); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+				return filepath.Join(outside, "rules", cursorRuleFile)
+			},
+			args: []string{"cursor"},
 		},
 		{
-			name:     "root is .virtualboard directory",
-			rootDir:  "/project/.virtualboard",
-			expected: "/project",
+			name: "rules parent in dry-run",
+			setup: func(t *testing.T, appRoot, outside string) string {
+				if err := os.MkdirAll(filepath.Join(appRoot, ".cursor"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(appRoot, ".cursor", "rules")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+				return filepath.Join(outside, cursorRuleFile)
+			},
+			args: []string{"cursor"},
 		},
-	}
+		{
+			name: "leaf under force",
+			setup: func(t *testing.T, appRoot, outside string) string {
+				rules := filepath.Join(appRoot, ".cursor", "rules")
+				if err := os.MkdirAll(rules, 0o750); err != nil {
+					t.Fatal(err)
+				}
+				sentinel := filepath.Join(outside, "sentinel.mdc")
+				writeInstallFile(t, sentinel, "outside sentinel\n", 0o600)
+				if err := os.Symlink(sentinel, filepath.Join(rules, cursorRuleFile)); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+				return sentinel
+			},
+			args: []string{"cursor", "--force"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			appRoot, vbRoot, opts := newNestedInstallWorkspace(t, true, strings.Contains(test.name, "dry-run"))
+			writeCursorSource(t, vbRoot, "authorized rule\n", 0o777)
+			outside := t.TempDir()
+			externalTarget := test.setup(t, appRoot, outside)
+			before, beforeErr := os.ReadFile(externalTarget)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := &config.Options{RootDir: tt.rootDir}
-			result := getProjectRoot(opts)
-			if result != tt.expected {
-				t.Errorf("getProjectRoot() = %v, want %v", result, tt.expected)
+			_, err := runInstall(t, test.args...)
+			if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "symbolic links are not allowed") {
+				t.Fatalf("destination symlink error = %v", err)
+			}
+			if opts.DryRun && !strings.Contains(test.name, "dry-run") {
+				t.Fatal("unexpected dry-run fixture")
+			}
+			after, afterErr := os.ReadFile(externalTarget)
+			if beforeErr == nil {
+				if afterErr != nil || !bytes.Equal(after, before) {
+					t.Fatalf("external sentinel changed: before=%q after=%q err=%v", before, after, afterErr)
+				}
+			} else if !os.IsNotExist(afterErr) {
+				t.Fatalf("outside destination was created or became unreadable: %v", afterErr)
 			}
 		})
 	}
 }
 
-// Test Cursor installation with MkdirAll error
-func TestInstallCursor_MkdirAllError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create a file where the directory should be (to cause MkdirAll error)
-	cursorPath := filepath.Join(fix.Root, ".cursor")
-	if err := os.WriteFile(cursorPath, []byte("file"), 0o600); err != nil {
-		t.Fatalf("failed to create blocking file: %v", err)
-	}
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when MkdirAll fails")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
-	}
-}
-
-// Test OpenCode installation with MkdirAll error
-func TestInstallOpenCode_MkdirAllError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create agents directory
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o750); err != nil {
-		t.Fatalf("failed to create agents dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentsPath, "test.md"), []byte("test"), 0o600); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	// Create a file where the directory should be (to cause MkdirAll error)
-	opencodePath := filepath.Join(fix.Root, ".opencode")
-	if err := os.WriteFile(opencodePath, []byte("file"), 0o600); err != nil {
-		t.Fatalf("failed to create blocking file: %v", err)
-	}
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when MkdirAll fails")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
-	}
-}
-
-// Test copyDir with write error
-func TestCopyDir_WriteError(t *testing.T) {
-	srcDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(srcDir, "test.txt"), []byte("content"), 0o600); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
-
-	// Create read-only destination directory
-	destDir := t.TempDir()
-	if err := os.Chmod(destDir, 0o444); err != nil {
-		t.Fatalf("failed to make dest read-only: %v", err)
-	}
-	t.Cleanup(func() {
-		os.Chmod(destDir, 0o755)
+func TestInstallOpenCodeRequiresWorkspaceAndSkill(t *testing.T) {
+	t.Run("workspace missing", func(t *testing.T) {
+		initInstallOptions(t, t.TempDir(), false, false)
+		_, err := runInstall(t, "opencode")
+		if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "workspace not found") {
+			t.Fatalf("missing workspace error = %v", err)
+		}
 	})
 
-	err := copyDir(srcDir, destDir)
-	if err == nil {
-		t.Error("expected error when write fails")
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string)
+		want  string
+	}{
+		{name: "skill missing", setup: func(t *testing.T, root string) {
+			writeInstallFile(t, filepath.Join(root, filepath.FromSlash(openCodeIntegrationRoot), "README.md"), "integration", 0o600)
+		}, want: "authorized integration file is missing"},
+		{name: "skill empty", setup: func(t *testing.T, root string) {
+			writeInstallFile(t, filepath.Join(root, filepath.FromSlash(openCodeIntegrationRoot), filepath.FromSlash(openCodeRequiredSkill)), "", 0o600)
+		}, want: "checksum mismatch"},
+		{name: "skill is directory", setup: func(t *testing.T, root string) {
+			if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(openCodeIntegrationRoot), filepath.FromSlash(openCodeRequiredSkill)), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "authorized integration file is missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+			test.setup(t, vbRoot)
+			_, err := runInstall(t, "opencode")
+			if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("%s error = %v", test.name, err)
+			}
+		})
 	}
 }
 
-// Test Cursor installation with pathExists error for vbPath
-// pathExists returns an error when Stat fails with something other than "not exists"
-// This happens when a path component has no execute permission
-func TestInstallCursor_PathExistsError(t *testing.T) {
-	root := t.TempDir()
-
-	// Create a directory that we'll make inaccessible
-	parentDir := filepath.Join(root, "parent")
-	if err := os.MkdirAll(parentDir, 0o755); err != nil {
-		t.Fatalf("failed to create parent dir: %v", err)
+func TestInstallOpenCodeRejectsUnsafeSourceTree(t *testing.T) {
+	_, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	sourceRoot := writeOpenCodeSource(t, vbRoot, nil)
+	target := filepath.Join(sourceRoot, "linked.md")
+	if err := os.Symlink(filepath.Join(sourceRoot, filepath.FromSlash(openCodeRequiredSkill)), target); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	// Create .virtualboard inside parent
-	vbInParent := filepath.Join(parentDir, ".virtualboard")
-	if err := os.MkdirAll(vbInParent, 0o755); err != nil {
-		t.Fatalf("failed to create .virtualboard: %v", err)
-	}
-
-	// Initialize options properly
-	opts := config.New()
-	if err := opts.Init(parentDir, false, false, false, ""); err != nil {
-		t.Fatalf("failed to init options: %v", err)
-	}
-
-	// Now remove execute permission from parent so Stat fails with permission error
-	if err := os.Chmod(parentDir, 0o000); err != nil {
-		t.Fatalf("failed to chmod parent: %v", err)
-	}
-	t.Cleanup(func() {
-		os.Chmod(parentDir, 0o755)
-	})
-
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when pathExists fails with permission error")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
+	_, err := runInstall(t, "opencode")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "symbolic links are not allowed") {
+		t.Fatalf("unsafe OpenCode source error = %v", err)
 	}
 }
 
-// Test OpenCode installation with pathExists error for vbPath
-func TestInstallOpenCode_PathExistsError(t *testing.T) {
-	root := t.TempDir()
+func TestInstallOpenCodeManifestFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string)
+		want   string
+	}{
+		{
+			name: "modified authorized file",
+			mutate: func(t *testing.T, sourceRoot string) {
+				writeInstallFile(t, filepath.Join(sourceRoot, filepath.FromSlash(openCodeRequiredSkill)), "tampered skill\n", 0o644)
+			},
+			want: "checksum mismatch",
+		},
+		{
+			name: "unlisted extra file",
+			mutate: func(t *testing.T, sourceRoot string) {
+				writeInstallFile(t, filepath.Join(sourceRoot, "plugin", "unexpected.js"), "export default {}\n", 0o755)
+			},
+			want: "unlisted integration source file",
+		},
+		{
+			name: "missing authorized file",
+			mutate: func(t *testing.T, sourceRoot string) {
+				if err := os.Remove(filepath.Join(sourceRoot, filepath.FromSlash(openCodeRequiredSkill))); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "authorized integration file is missing",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, true)
+			sourceRoot := writeOpenCodeSource(t, vbRoot, nil)
+			test.mutate(t, sourceRoot)
 
-	// Create a directory that we'll make inaccessible
-	parentDir := filepath.Join(root, "parent")
-	if err := os.MkdirAll(parentDir, 0o755); err != nil {
-		t.Fatalf("failed to create parent dir: %v", err)
-	}
-
-	// Create .virtualboard inside parent
-	vbInParent := filepath.Join(parentDir, ".virtualboard")
-	if err := os.MkdirAll(vbInParent, 0o755); err != nil {
-		t.Fatalf("failed to create .virtualboard: %v", err)
-	}
-
-	// Initialize options properly
-	opts := config.New()
-	if err := opts.Init(parentDir, false, false, false, ""); err != nil {
-		t.Fatalf("failed to init options: %v", err)
-	}
-
-	// Now remove execute permission from parent so Stat fails with permission error
-	if err := os.Chmod(parentDir, 0o000); err != nil {
-		t.Fatalf("failed to chmod parent: %v", err)
-	}
-	t.Cleanup(func() {
-		os.Chmod(parentDir, 0o755)
-	})
-
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when pathExists fails with permission error")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
+			_, err := runInstall(t, "opencode")
+			if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("OpenCode manifest error = %v; want %q", err, test.want)
+			}
+			if _, err := os.Stat(filepath.Join(appRoot, ".opencode")); !os.IsNotExist(err) {
+				t.Fatalf("unauthorized source created destination: %v", err)
+			}
+		})
 	}
 }
 
-// Test OpenCode installation with pathExists error for agents
-func TestInstallOpenCode_AgentsPathExistsError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
-
-	// Create the agents directory and then make its parent inaccessible
-	agentsPath := filepath.Join(fix.Root, ".virtualboard", "agents")
-	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
-		t.Fatalf("failed to create agents directory: %v", err)
+func TestValidateIntegrationManifestIsStrict(t *testing.T) {
+	hash := strings.Repeat("a", sha256.Size*2)
+	invalid := [][]integrationManifestEntry{
+		nil,
+		{{Path: "../escape", SHA256: hash}, {Path: openCodeRequiredSkill, SHA256: hash}},
+		{{Path: openCodeRequiredSkill, SHA256: strings.ToUpper(hash)}},
+		{{Path: openCodeRequiredSkill, SHA256: hash}, {Path: openCodeRequiredSkill, SHA256: hash}},
+		{{Path: "z.md", SHA256: hash}, {Path: openCodeRequiredSkill, SHA256: hash}},
+		{{Path: "other.md", SHA256: hash}},
 	}
-
-	// Create a nested path within agents that will fail permission check
-	vbPath := filepath.Join(fix.Root, ".virtualboard")
-
-	// Make the .virtualboard directory inaccessible
-	if err := os.Chmod(vbPath, 0o000); err != nil {
-		t.Fatalf("failed to chmod: %v", err)
+	for _, manifest := range invalid {
+		if err := validateIntegrationManifest(manifest); err == nil {
+			t.Fatalf("invalid manifest was accepted: %#v", manifest)
+		}
 	}
-	t.Cleanup(func() {
-		os.Chmod(vbPath, 0o755)
-	})
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"opencode"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when pathExists fails for agents")
+	valid := []integrationManifestEntry{{Path: openCodeRequiredSkill, SHA256: hash}}
+	if err := validateIntegrationManifest(valid); err != nil {
+		t.Fatalf("valid manifest rejected: %v", err)
 	}
 }
 
-// Test Cursor installation with WriteFileAtomic error
-func TestInstallCursor_WriteFileError(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallOpenCodeDryRunUsesScaffoldedTree(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, true)
+	source := writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "# PM\n"})
 
-	// Create rules directory but make it read-only so WriteFileAtomic fails
-	rulesPath := filepath.Join(fix.Root, ".cursor", "rules")
-	if err := os.MkdirAll(rulesPath, 0o750); err != nil {
-		t.Fatalf("failed to create rules dir: %v", err)
-	}
-	// Make the directory read-only to cause write failure
-	if err := os.Chmod(rulesPath, 0o444); err != nil {
-		t.Fatalf("failed to make dir read-only: %v", err)
-	}
-	t.Cleanup(func() {
-		os.Chmod(rulesPath, 0o755)
-	})
-
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("content")),
-		}, nil
-	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error when WriteFileAtomic fails")
-	}
-	if ExitCode(err) != ExitCodeFilesystem {
-		t.Errorf("expected filesystem exit code, got %d", ExitCode(err))
-	}
-}
-
-// Test copyDir with nested directory creation failure
-func TestCopyDir_NestedDirError(t *testing.T) {
-	srcDir := t.TempDir()
-	nestedDir := filepath.Join(srcDir, "nested")
-	if err := os.MkdirAll(nestedDir, 0o750); err != nil {
-		t.Fatalf("failed to create nested dir: %v", err)
-	}
-
-	// Create destination with a file where directory should be
-	destDir := t.TempDir()
-	destNested := filepath.Join(destDir, "nested")
-	if err := os.WriteFile(destNested, []byte("blocking"), 0o600); err != nil {
-		t.Fatalf("failed to create blocking file: %v", err)
-	}
-
-	err := copyDir(srcDir, destDir)
-	if err == nil {
-		t.Error("expected error when nested directory creation fails")
-	}
-}
-
-// Test copyDir with empty source directory
-func TestCopyDir_EmptySource(t *testing.T) {
-	srcDir := t.TempDir()
-	destDir := t.TempDir()
-
-	// Empty source should not error
-	err := copyDir(srcDir, destDir)
+	output, err := runInstall(t, "opencode")
 	if err != nil {
-		t.Errorf("expected success for empty source, got %v", err)
+		t.Fatalf("OpenCode dry-run: %v", err)
+	}
+	data := parseInstallJSON(t, output)["data"].(map[string]interface{})
+	if data["source"] != source || data["destination"] != filepath.Join(appRoot, ".opencode") || data["files"] != float64(2) {
+		t.Fatalf("unexpected OpenCode dry-run response: %#v", data)
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".opencode")); !os.IsNotExist(err) {
+		t.Fatal("OpenCode dry-run created .opencode")
 	}
 }
 
-// Test copyDir with recursive subdirectory error
-// The recursive call to copyDir should propagate errors
-func TestCopyDir_RecursiveSubdirError(t *testing.T) {
-	srcDir := t.TempDir()
-	// Create nested structure with a file in subdirectory
-	subDir := filepath.Join(srcDir, "sub")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatalf("failed to create subdir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(subDir, "file.txt"), []byte("content"), 0o600); err != nil {
-		t.Fatalf("failed to create file: %v", err)
-	}
-
-	destDir := t.TempDir()
-	// Create the subdirectory in dest
-	destSubDir := filepath.Join(destDir, "sub")
-	if err := os.MkdirAll(destSubDir, 0o755); err != nil {
-		t.Fatalf("failed to create dest subdir: %v", err)
-	}
-	// Make dest subdir read-only to cause the recursive write to fail
-	if err := os.Chmod(destSubDir, 0o444); err != nil {
-		t.Fatalf("failed to chmod dest subdir: %v", err)
-	}
-	t.Cleanup(func() {
-		os.Chmod(destSubDir, 0o755)
+func TestInstallOpenCodeNestedWorkspaceEndToEnd(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeInstallFile(t, filepath.Join(appRoot, ".opencode", "settings.json"), "user settings\n", 0o600)
+	writeOpenCodeSource(t, vbRoot, map[string]string{
+		"command/pm.md":        "# PM\n",
+		"command/work-on.md":   "# Work on\n",
+		"plugin/manifest.json": "{}\n",
 	})
 
-	err := copyDir(srcDir, destDir)
-	if err == nil {
-		t.Error("expected error when recursive copy fails")
+	output, err := runInstall(t, "opencode")
+	if err != nil {
+		t.Fatalf("install OpenCode: %v", err)
+	}
+	for rel, want := range map[string]string{
+		openCodeRequiredSkill:  testOpenSkill,
+		"command/pm.md":        "# PM\n",
+		"command/work-on.md":   "# Work on\n",
+		"plugin/manifest.json": "{}\n",
+	} {
+		if got := readInstallFile(t, filepath.Join(appRoot, ".opencode", filepath.FromSlash(rel))); got != want {
+			t.Fatalf("OpenCode %s = %q, want %q", rel, got, want)
+		}
+	}
+	skillInfo, err := os.Stat(filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill)))
+	if err != nil {
+		t.Fatalf("stat OpenCode skill: %v", err)
+	}
+	if !integrationFileModeIsSafe(skillInfo.Mode()) {
+		t.Fatalf("OpenCode skill mode = %v; want %v", skillInfo.Mode().Perm(), safeIntegrationFileMode)
+	}
+	skillDirInfo, err := os.Stat(filepath.Dir(filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill))))
+	if err != nil {
+		t.Fatalf("stat OpenCode skill directory: %v", err)
+	}
+	if !integrationDirectoryModeIsSafe(skillDirInfo.Mode()) {
+		t.Fatalf("OpenCode skill directory mode = %v; want %v", skillDirInfo.Mode().Perm(), safeIntegrationDirMode)
+	}
+	data := parseInstallJSON(t, output)["data"].(map[string]interface{})
+	if data["installed"] != true || data["files"] != float64(4) {
+		t.Fatalf("unexpected OpenCode response: %#v", data)
+	}
+	if got := readInstallFile(t, filepath.Join(appRoot, ".opencode", "settings.json")); got != "user settings\n" {
+		t.Fatalf("OpenCode install did not preserve unrelated app configuration: %q", got)
 	}
 }
 
-// Test Cursor installation plain text with successful write
-func TestInstallCursor_PlainTextSuccess(t *testing.T) {
-	fix := testutil.NewFixture(t)
-	opts := fix.Options(t, false, false, false)
-	opts.JSONOutput = false
-	config.SetCurrent(opts)
-	t.Cleanup(func() { config.SetCurrent(nil) })
+func TestInstallOpenCodeNormalizesUnsafeInstalledModes(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeOpenCodeSource(t, vbRoot, nil)
 
-	// Mock HTTP GET
-	originalHTTP := httpGet
-	httpGet = func(url string) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader("---\ndescription: VirtualBoard rule\n---")),
-		}, nil
+	root := filepath.Join(appRoot, ".opencode")
+	installedDirs := []string{
+		root,
+		filepath.Join(root, "skill"),
+		filepath.Join(root, "skill", "virtualboard"),
 	}
-	t.Cleanup(func() { httpGet = originalHTTP })
-
-	cmd := newInstallCommand()
-	cmd.SetArgs([]string{"cursor"})
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("expected success, got %v", err)
+	for _, directory := range installedDirs {
+		if err := os.MkdirAll(directory, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(directory, 0o777); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "VirtualBoard rule installed") {
-		t.Errorf("expected success message, got: %s", output)
+	if _, err := runInstall(t, "opencode"); err != nil {
+		t.Fatalf("install OpenCode over unsafe directory modes: %v", err)
+	}
+	for _, directory := range installedDirs {
+		info, err := os.Stat(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !integrationDirectoryModeIsSafe(info.Mode()) {
+			t.Fatalf("OpenCode directory remains group/world writable: %s mode=%v", directory, info.Mode().Perm())
+		}
+	}
+	target := filepath.Join(root, filepath.FromSlash(openCodeRequiredSkill))
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !integrationFileModeIsSafe(info.Mode()) {
+		t.Fatalf("OpenCode payload mode = %v, want %v", info.Mode().Perm(), safeIntegrationFileMode)
+	}
+}
+
+func TestInstallOpenCodeTemplateWorkspaceEndToEnd(t *testing.T) {
+	root, _ := newTemplateInstallWorkspace(t, false, false)
+	writeOpenCodeSource(t, root, map[string]string{"README.md": "OpenCode integration\n"})
+
+	output, err := runInstall(t, "opencode")
+	if err != nil {
+		t.Fatalf("install OpenCode from template layout: %v", err)
+	}
+	if readInstallFile(t, filepath.Join(root, ".opencode", filepath.FromSlash(openCodeRequiredSkill))) != testOpenSkill {
+		t.Fatal("template-layout install did not copy required OpenCode skill")
+	}
+	if !strings.Contains(output, "OpenCode integration installed") {
+		t.Fatalf("unexpected OpenCode plain-text output: %q", output)
+	}
+}
+
+func TestInitThenInstallCursorAndOpenCodeEndToEnd(t *testing.T) {
+	appRoot := t.TempDir()
+	initInstallOptions(t, appRoot, false, false)
+	mockPinnedTemplateDownload(t, makePinnedTemplateArchive(t, templateVersion, nil))
+
+	initCommand := newInitCommand()
+	var initOutput bytes.Buffer
+	initCommand.SetOut(&initOutput)
+	initCommand.SetErr(&initOutput)
+	if err := initCommand.Execute(); err != nil {
+		t.Fatalf("vb init: %v", err)
+	}
+	if !strings.Contains(initOutput.String(), "VirtualBoard project initialised") {
+		t.Fatalf("unexpected vb init output: %q", initOutput.String())
+	}
+
+	workspace := filepath.Join(appRoot, ".virtualboard")
+	if _, err := os.Stat(filepath.Join(workspace, "features", "in-progress", "FTR-0001-template-history.md")); !os.IsNotExist(err) {
+		t.Fatalf("vb init scaffolded template feature history: %v", err)
+	}
+	index := readInstallFile(t, filepath.Join(workspace, "features", "INDEX.md"))
+	if strings.Contains(index, "FTR-0001") || !strings.Contains(index, "**Total**: 0 features") {
+		t.Fatalf("vb init did not reset feature index: %q", index)
+	}
+
+	setCursorDigest(t, "cursor-rule\n")
+	if _, err := runInstall(t, "cursor"); err != nil {
+		t.Fatalf("vb install cursor after init: %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(appRoot, ".cursor", "rules", cursorRuleFile)); got != "cursor-rule\n" {
+		t.Fatalf("installed Cursor rule = %q", got)
+	}
+
+	setOpenCodeManifest(t, map[string]string{openCodeRequiredSkill: "opencode-skill\n"})
+	if _, err := runInstall(t, "opencode"); err != nil {
+		t.Fatalf("vb install opencode after init: %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill))); got != "opencode-skill\n" {
+		t.Fatalf("installed OpenCode skill = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".opencode", "agent")); !os.IsNotExist(err) {
+		t.Fatalf("legacy agents directory should not be synthesized: %v", err)
+	}
+}
+
+func TestInstallOpenCodeIdempotent(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "# PM\n"})
+
+	if _, err := runInstall(t, "opencode"); err != nil {
+		t.Fatalf("first OpenCode install: %v", err)
+	}
+	original := confirmReplace
+	confirmReplace = func(*config.Options, string) (bool, error) {
+		t.Fatal("identical OpenCode tree must not prompt")
+		return false, nil
+	}
+	t.Cleanup(func() { confirmReplace = original })
+	output, err := runInstall(t, "opencode")
+	if err != nil {
+		t.Fatalf("second OpenCode install: %v", err)
+	}
+	if readInstallFile(t, filepath.Join(appRoot, ".opencode", "command", "pm.md")) != "# PM\n" {
+		t.Fatal("idempotent OpenCode install changed content")
+	}
+	if parseInstallJSON(t, output)["success"] != true {
+		t.Fatal("idempotent OpenCode install did not report success")
+	}
+}
+
+func TestInstallOpenCodeConflictDeclineIsAtomicAndFailClosed(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeOpenCodeSource(t, vbRoot, map[string]string{
+		"command/pm.md":      "new PM\n",
+		"command/new.md":     "new command\n",
+		"plugin/config.json": "{}\n",
+	})
+	conflict := filepath.Join(appRoot, ".opencode", "command", "pm.md")
+	writeInstallFile(t, conflict, "local PM\n", 0o600)
+
+	original := confirmReplace
+	confirmReplace = func(_ *config.Options, prompt string) (bool, error) {
+		if !strings.Contains(prompt, "1 OpenCode integration file") {
+			t.Fatalf("unexpected OpenCode conflict prompt: %q", prompt)
+		}
+		return false, nil
+	}
+	t.Cleanup(func() { confirmReplace = original })
+
+	output, err := runInstall(t, "opencode")
+	if err != nil || !strings.Contains(output, "cancelled") {
+		t.Fatalf("declined OpenCode conflict: output=%q err=%v", output, err)
+	}
+	if readInstallFile(t, conflict) != "local PM\n" {
+		t.Fatal("declined OpenCode conflict overwrote local file")
+	}
+	for _, rel := range []string{openCodeRequiredSkill, "command/new.md", "plugin/config.json"} {
+		if _, err := os.Stat(filepath.Join(appRoot, ".opencode", filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("declined conflict partially copied %s", rel)
+		}
+	}
+}
+
+func TestInstallOpenCodeConflictAcceptAndForce(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "accept", args: []string{"opencode"}},
+		{name: "force", args: []string{"opencode", "--force"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+			writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "new PM\n"})
+			conflict := filepath.Join(appRoot, ".opencode", "command", "pm.md")
+			writeInstallFile(t, conflict, "local PM\n", 0o600)
+
+			original := confirmReplace
+			confirmReplace = func(*config.Options, string) (bool, error) {
+				if test.name == "force" {
+					t.Fatal("OpenCode --force must bypass confirmation")
+				}
+				return true, nil
+			}
+			t.Cleanup(func() { confirmReplace = original })
+
+			if _, err := runInstall(t, test.args...); err != nil {
+				t.Fatalf("OpenCode %s: %v", test.name, err)
+			}
+			if got := readInstallFile(t, conflict); got != "new PM\n" {
+				t.Fatalf("OpenCode %s content = %q", test.name, got)
+			}
+			if readInstallFile(t, filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill))) != testOpenSkill {
+				t.Fatalf("OpenCode %s did not install required skill", test.name)
+			}
+		})
+	}
+}
+
+func TestInstallOpenCodeAbortsWhenDestinationChangesAfterConsent(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "new PM\n"})
+	conflict := filepath.Join(appRoot, ".opencode", "command", "pm.md")
+	writeInstallFile(t, conflict, "local PM\n", 0o600)
+
+	originalConfirm := confirmReplace
+	confirmReplace = func(*config.Options, string) (bool, error) { return true, nil }
+	originalHook := afterOpenCodeConsent
+	afterOpenCodeConsent = func() {
+		if err := os.WriteFile(conflict, []byte("racing edit\n"), 0o600); err != nil {
+			t.Fatalf("write racing edit: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		confirmReplace = originalConfirm
+		afterOpenCodeConsent = originalHook
+	})
+
+	_, err := runInstall(t, "opencode")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "changed after approval") {
+		t.Fatalf("OpenCode post-consent race error = %v", err)
+	}
+	if got := readInstallFile(t, conflict); got != "racing edit\n" {
+		t.Fatalf("post-consent race overwrote local edit: %q", got)
+	}
+	if _, statErr := os.Stat(filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill))); !os.IsNotExist(statErr) {
+		t.Fatalf("post-consent race partially installed integration: %v", statErr)
+	}
+}
+
+func TestInstallOpenCodeRetainsJournalWhenDestinationRecreatedAfterCapture(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "new PM\n"})
+	target := filepath.Join(appRoot, ".opencode")
+	conflict := filepath.Join(target, "command", "pm.md")
+	writeInstallFile(t, conflict, "approved local PM\n", 0o600)
+
+	originalConfirm := confirmReplace
+	originalHook := afterOpenCodeDestinationCaptured
+	confirmReplace = func(*config.Options, string) (bool, error) { return true, nil }
+	afterOpenCodeDestinationCaptured = func() {
+		writeInstallFile(t, filepath.Join(target, "racing.md"), "concurrently recreated\n", 0o600)
+	}
+	t.Cleanup(func() {
+		confirmReplace = originalConfirm
+		afterOpenCodeDestinationCaptured = originalHook
+	})
+
+	_, err := runInstall(t, "opencode")
+	if err == nil || !strings.Contains(err.Error(), "stage, captured tree, and journal retained") {
+		t.Fatalf("OpenCode capture-to-publish race error = %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(target, "racing.md")); got != "concurrently recreated\n" {
+		t.Fatalf("OpenCode race replaced concurrent target: %q", got)
+	}
+	journalPath := directoryReplaceJournalPath(target)
+	data, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatalf("read retained replacement journal: %v", err)
+	}
+	var journal directoryReplaceJournal
+	if err := json.Unmarshal(data, &journal); err != nil {
+		t.Fatalf("parse retained replacement journal: %v", err)
+	}
+	stage := filepath.Join(appRoot, journal.Stage)
+	backup := filepath.Join(appRoot, journal.Backup)
+	if readInstallFile(t, filepath.Join(backup, "command", "pm.md")) != "approved local PM\n" {
+		t.Fatal("retained OpenCode capture does not contain the approved local tree")
+	}
+	if readInstallFile(t, filepath.Join(stage, "command", "pm.md")) != "new PM\n" {
+		t.Fatal("retained OpenCode stage does not contain the authenticated integration")
+	}
+
+	afterOpenCodeDestinationCaptured = nil
+	_, err = runInstall(t, "opencode", "--force")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("subsequent OpenCode install ignored ambiguous retained state: %v", err)
+	}
+	for _, retained := range []string{target, stage, backup, journalPath} {
+		if _, statErr := os.Lstat(retained); statErr != nil {
+			t.Fatalf("ambiguous recovery removed %s: %v", retained, statErr)
+		}
+	}
+}
+
+func TestInstallOpenCodeAbsentTargetPublicationIsExclusive(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeOpenCodeSource(t, vbRoot, nil)
+	target := filepath.Join(appRoot, ".opencode")
+	originalHook := beforeOpenCodeExclusivePublish
+	beforeOpenCodeExclusivePublish = func() {
+		writeInstallFile(t, filepath.Join(target, "racing.md"), "concurrently created\n", 0o600)
+	}
+	t.Cleanup(func() { beforeOpenCodeExclusivePublish = originalHook })
+
+	_, err := runInstall(t, "opencode")
+	if err == nil || !strings.Contains(err.Error(), "failed to activate integration") {
+		t.Fatalf("absent OpenCode publication race error = %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(target, "racing.md")); got != "concurrently created\n" {
+		t.Fatalf("absent OpenCode publication overwrote concurrent tree: %q", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(target, filepath.FromSlash(openCodeRequiredSkill))); !os.IsNotExist(statErr) {
+		t.Fatalf("absent OpenCode race partially installed authenticated tree: %v", statErr)
+	}
+}
+
+func TestInstallOpenCodeConflictConfirmationErrorIsFailClosed(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+	writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "new PM\n"})
+	conflict := filepath.Join(appRoot, ".opencode", "command", "pm.md")
+	writeInstallFile(t, conflict, "local PM\n", 0o600)
+	original := confirmReplace
+	confirmReplace = func(*config.Options, string) (bool, error) { return false, errors.New("stdin closed") }
+	t.Cleanup(func() { confirmReplace = original })
+
+	_, err := runInstall(t, "opencode")
+	if err == nil || ExitCode(err) != ExitCodeUnknown || !strings.Contains(err.Error(), "confirmation") {
+		t.Fatalf("OpenCode confirmation error = %v", err)
+	}
+	if readInstallFile(t, conflict) != "local PM\n" {
+		t.Fatal("OpenCode confirmation error overwrote conflict")
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill))); !os.IsNotExist(err) {
+		t.Fatal("OpenCode confirmation error partially copied source")
+	}
+}
+
+func TestInstallOpenCodeJSONConflictRequiresForce(t *testing.T) {
+	appRoot, vbRoot, _ := newNestedInstallWorkspace(t, true, false)
+	writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "new\n"})
+	target := filepath.Join(appRoot, ".opencode", "command", "pm.md")
+	writeInstallFile(t, target, "old\n", 0o600)
+
+	_, err := runInstall(t, "opencode")
+	if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("JSON OpenCode conflict must require --force: %v", err)
+	}
+	if readInstallFile(t, target) != "old\n" {
+		t.Fatal("JSON OpenCode conflict mutated the target without --force")
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, ".opencode", filepath.FromSlash(openCodeRequiredSkill))); !os.IsNotExist(err) {
+		t.Fatal("JSON OpenCode conflict partially copied source files")
+	}
+}
+
+func TestInstallOpenCodeFilesystemFailures(t *testing.T) {
+	t.Run("destination inspection", func(t *testing.T) {
+		appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+		writeOpenCodeSource(t, vbRoot, map[string]string{"command/pm.md": "# PM\n"})
+		if err := os.MkdirAll(filepath.Join(appRoot, ".opencode", "command", "pm.md"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runInstall(t, "opencode")
+		if err == nil || ExitCode(err) != ExitCodeValidation || !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("OpenCode inspection error = %v", err)
+		}
+	})
+
+	t.Run("destination hierarchy blocked", func(t *testing.T) {
+		appRoot, vbRoot, _ := newNestedInstallWorkspace(t, false, false)
+		writeOpenCodeSource(t, vbRoot, nil)
+		writeInstallFile(t, filepath.Join(appRoot, ".opencode", "skill"), "blocking file", 0o600)
+		_, err := runInstall(t, "opencode")
+		if err == nil || ExitCode(err) != ExitCodeValidation {
+			t.Fatalf("OpenCode blocked hierarchy error = %v", err)
+		}
+	})
+}
+
+func TestReadRequiredIntegrationFile(t *testing.T) {
+	root := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	if _, _, err := readRequiredIntegrationFile(missing, "missing"); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("missing required source error = %v", err)
+	}
+
+	directory := filepath.Join(root, "directory")
+	if err := os.Mkdir(directory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := readRequiredIntegrationFile(directory, "directory"); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("directory required source error = %v", err)
+	}
+
+	empty := filepath.Join(root, "empty")
+	writeInstallFile(t, empty, "", 0o600)
+	if _, _, err := readRequiredIntegrationFile(empty, "empty"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("empty required source error = %v", err)
+	}
+
+	valid := filepath.Join(root, "valid")
+	writeInstallFile(t, valid, "content", 0o640)
+	content, mode, err := readRequiredIntegrationFile(valid, "valid")
+	if err != nil || string(content) != "content" || !util.PermMatchesRequested(mode, 0o640) {
+		t.Fatalf("valid required source = %q, %v, %v", content, mode, err)
+	}
+}
+
+func TestCollectIntegrationFiles(t *testing.T) {
+	root := t.TempDir()
+	writeInstallFile(t, filepath.Join(root, "a.md"), "a", 0o600)
+	writeInstallFile(t, filepath.Join(root, "nested", "b.md"), "b", 0o600)
+	files, err := collectIntegrationFiles(root)
+	if err != nil || strings.Join(files, ",") != strings.Join([]string{"a.md", filepath.Join("nested", "b.md")}, ",") {
+		t.Fatalf("collectIntegrationFiles = %#v, %v", files, err)
+	}
+
+	fileRoot := filepath.Join(t.TempDir(), "file")
+	writeInstallFile(t, fileRoot, "content", 0o600)
+	if _, err := collectIntegrationFiles(fileRoot); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("file root error = %v", err)
+	}
+	if _, err := collectIntegrationFiles(filepath.Join(root, "missing")); err == nil {
+		t.Fatal("missing integration root should fail")
+	}
+
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(filepath.Join(root, "a.md"), link); err == nil {
+		if _, err := collectIntegrationFiles(root); err == nil || !strings.Contains(err.Error(), "symbolic links") {
+			t.Fatalf("symlink source error = %v", err)
+		}
+	}
+}
+
+func TestIntegrationConflicts(t *testing.T) {
+	destination := t.TempDir()
+	writeInstallFile(t, filepath.Join(destination, "same"), "same", 0o600)
+	writeInstallFile(t, filepath.Join(destination, "different"), "destination", 0o600)
+	files := []authorizedIntegrationFile{
+		{Path: "same", Content: []byte("same")},
+		{Path: "different", Content: []byte("source")},
+		{Path: "new", Content: []byte("new")},
+	}
+
+	conflicts, err := integrationConflicts(destination, files)
+	if err != nil || len(conflicts) != 1 || conflicts[0] != "different" {
+		t.Fatalf("integrationConflicts = %#v, %v", conflicts, err)
+	}
+	if err := os.Mkdir(filepath.Join(destination, "new"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := integrationConflicts(destination, []authorizedIntegrationFile{{Path: "new", Content: []byte("new")}}); err == nil || !strings.Contains(err.Error(), "failed to inspect") {
+		t.Fatalf("destination inspection error = %v", err)
+	}
+}
+
+func TestCopyIntegrationFiles(t *testing.T) {
+	destination := t.TempDir()
+	files := []authorizedIntegrationFile{{Path: "nested/file.md", Content: []byte("content")}}
+	if err := copyIntegrationFiles(destination, files); err != nil {
+		t.Fatalf("copyIntegrationFiles: %v", err)
+	}
+	target := filepath.Join(destination, "nested", "file.md")
+	if readInstallFile(t, target) != "content" {
+		t.Fatal("copyIntegrationFiles content mismatch")
+	}
+	info, _ := os.Stat(target)
+	if !integrationFileModeIsSafe(info.Mode()) {
+		t.Fatalf("copied mode = %v, want %v", info.Mode().Perm(), safeIntegrationFileMode)
+	}
+	if err := os.Mkdir(filepath.Join(destination, "blocked"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyIntegrationFiles(destination, []authorizedIntegrationFile{{Path: "blocked", Content: []byte("file")}}); err == nil || !strings.Contains(err.Error(), "unsafe integration destination") {
+		t.Fatalf("copyIntegrationFiles write error = %v", err)
+	}
+}
+
+func TestInstallIntegrationTreeIsAtomicOnCopyFailure(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), ".opencode")
+	writeInstallFile(t, filepath.Join(destination, "settings.json"), "user settings\n", 0o600)
+	writeInstallFile(t, filepath.Join(destination, "blocked"), "blocking file\n", 0o600)
+
+	err := installIntegrationTreeAtomically(destination, []authorizedIntegrationFile{
+		{Path: "first.md", Content: []byte("new file\n")},
+		{Path: "blocked/nested.md", Content: []byte("must fail\n")},
+	})
+	if err == nil {
+		t.Fatal("atomic integration install should fail when a staged source is missing")
+	}
+	if got := readInstallFile(t, filepath.Join(destination, "settings.json")); got != "user settings\n" {
+		t.Fatalf("failed atomic install changed user settings: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "first.md")); !os.IsNotExist(err) {
+		t.Fatalf("failed atomic install partially copied first.md: %v", err)
+	}
+}
+
+func TestOpenCodeIntegrationRecoversInterruptedDirectoryActivation(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, ".opencode")
+	stage := filepath.Join(parent, ".vb-integration-stage-recovery")
+	backup := filepath.Join(parent, ".vb-template-backup-recovery")
+	writeInstallFile(t, filepath.Join(stage, "new.md"), "new integration\n", 0o600)
+	writeInstallFile(t, filepath.Join(backup, "old.md"), "old integration\n", 0o600)
+	journal := directoryReplaceJournal{
+		Version:   directoryReplaceJournalVersion,
+		Target:    filepath.Base(target),
+		Stage:     filepath.Base(stage),
+		Backup:    filepath.Base(backup),
+		StartedAt: time.Now().Add(-2 * time.Hour),
+	}
+	journalPath := directoryReplaceJournalPath(target)
+	writeRecoverableDirectoryReplaceJournal(t, target, &journal)
+
+	if err := recoverDirectoryReplacement(target); err != nil {
+		t.Fatalf("recover interrupted OpenCode activation: %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(target, "new.md")); got != "new integration\n" {
+		t.Fatalf("recovered OpenCode content = %q", got)
+	}
+	for _, stale := range []string{stage, backup, journalPath} {
+		if _, err := os.Lstat(stale); !os.IsNotExist(err) {
+			t.Fatalf("recovery left stale path %s: %v", stale, err)
+		}
+	}
+}
+
+func TestOpenCodeCrashRecoveryRejectsCapturedTreeThatWasNotApproved(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, ".opencode")
+	stage := filepath.Join(parent, ".vb-integration-stage-recovery-mismatch")
+	backup := filepath.Join(parent, ".vb-template-backup-recovery-mismatch")
+	approved := filepath.Join(parent, "approved-snapshot")
+	writeInstallFile(t, filepath.Join(approved, "local.md"), "approved before consent\n", 0o600)
+	writeInstallFile(t, filepath.Join(stage, "installed.md"), "authenticated integration\n", 0o600)
+	writeInstallFile(t, filepath.Join(backup, "local.md"), "newer edit captured atomically\n", 0o600)
+	expected, err := captureIntegrationDestinationSnapshot(approved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := directoryReplaceJournal{
+		Version:            directoryReplaceJournalVersion,
+		Target:             filepath.Base(target),
+		Stage:              filepath.Base(stage),
+		Backup:             filepath.Base(backup),
+		ExpectedTreeSHA256: integrationDestinationSnapshotDigest(expected),
+		StartedAt:          time.Now().Add(-2 * time.Hour),
+	}
+	journalPath := directoryReplaceJournalPath(target)
+	writeRecoverableDirectoryReplaceJournal(t, target, &journal)
+
+	if err := recoverDirectoryReplacement(target); err != nil {
+		t.Fatalf("restore mismatched captured tree: %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(target, "local.md")); got != "newer edit captured atomically\n" {
+		t.Fatalf("recovery activated an unapproved stage instead of restoring capture: %q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(target, "installed.md")); !os.IsNotExist(err) {
+		t.Fatalf("recovery activated stage for mismatched capture: %v", err)
+	}
+	for _, stale := range []string{stage, backup, journalPath} {
+		if _, err := os.Lstat(stale); !os.IsNotExist(err) {
+			t.Fatalf("safe mismatch recovery left stale path %s: %v", stale, err)
+		}
+	}
+}
+
+func TestOpenCodeCrashRecoveryActivatesStageForExactApprovedCapture(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, ".opencode")
+	stage := filepath.Join(parent, ".vb-integration-stage-recovery-approved")
+	backup := filepath.Join(parent, ".vb-template-backup-recovery-approved")
+	writeInstallFile(t, filepath.Join(stage, "installed.md"), "authenticated integration\n", 0o600)
+	writeInstallFile(t, filepath.Join(backup, "local.md"), "approved local state\n", 0o600)
+	expected, err := captureIntegrationDestinationSnapshot(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := directoryReplaceJournal{
+		Version:            directoryReplaceJournalVersion,
+		Target:             filepath.Base(target),
+		Stage:              filepath.Base(stage),
+		Backup:             filepath.Base(backup),
+		ExpectedTreeSHA256: integrationDestinationSnapshotDigest(expected),
+		StartedAt:          time.Now().Add(-2 * time.Hour),
+	}
+	writeRecoverableDirectoryReplaceJournal(t, target, &journal)
+
+	if err := recoverDirectoryReplacement(target); err != nil {
+		t.Fatalf("activate exact approved recovery stage: %v", err)
+	}
+	if got := readInstallFile(t, filepath.Join(target, "installed.md")); got != "authenticated integration\n" {
+		t.Fatalf("exact approved recovery did not activate stage: %q", got)
 	}
 }

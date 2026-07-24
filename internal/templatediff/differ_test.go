@@ -1,10 +1,104 @@
 package templatediff
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
+
+func TestCompareDirectoriesDetectsModeOnlyDrift(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix permission bits")
+	}
+	local := t.TempDir()
+	remote := t.TempDir()
+	localPath := filepath.Join(local, "tool.txt")
+	remotePath := filepath.Join(remote, "tool.txt")
+	writeFile(t, localPath, "same\n")
+	writeFile(t, remotePath, "same\n")
+	if err := os.Chmod(localPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	diff, err := CompareDirectories(local, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diff.Modified) != 1 || diff.Modified[0].LocalMode.Perm() != 0o600 || diff.Modified[0].RemoteMode.Perm() != 0o644 {
+		t.Fatalf("mode-only drift was not represented: %#v", diff.Modified)
+	}
+	if !strings.Contains(diff.Modified[0].UnifiedDiff, "mode 0600 -> 0644") {
+		t.Fatalf("mode-only diff is not visible: %q", diff.Modified[0].UnifiedDiff)
+	}
+}
+
+func TestCompareDirectoriesRejectsOversizedLocalFile(t *testing.T) {
+	local := t.TempDir()
+	remote := t.TempDir()
+	path := filepath.Join(local, "unmanaged-large.bin")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxComparisonFileBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompareDirectories(local, remote); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized local file was accepted: %v", err)
+	}
+}
+
+func TestCollectFilesStreamsAndBoundsDirectoryEntries(t *testing.T) {
+	root := t.TempDir()
+	original := comparisonEntryLimit
+	comparisonEntryLimit = 3
+	t.Cleanup(func() { comparisonEntryLimit = original })
+	for i := 0; i < 4; i++ {
+		writeFile(t, filepath.Join(root, fmt.Sprintf("file-%d.txt", i)), "x")
+	}
+	if _, err := collectFiles(root); err == nil || !strings.Contains(err.Error(), "exceeds 3 entries") {
+		t.Fatalf("entry-bounded collection error = %v", err)
+	}
+}
+
+func TestCollectFilesRejectsSymlinkRoot(t *testing.T) {
+	external := t.TempDir()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "linked")
+	if err := os.Symlink(external, root); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := collectFiles(root); err == nil || !strings.Contains(err.Error(), "not a real directory") {
+		t.Fatalf("symlink-root collection error = %v", err)
+	}
+}
+
+func TestCompareFilesOmitsResourceIntensiveUnifiedDiff(t *testing.T) {
+	root := t.TempDir()
+	local := filepath.Join(root, "local.txt")
+	remote := filepath.Join(root, "remote.txt")
+	if err := os.WriteFile(local, bytes.Repeat([]byte("a"), maxUnifiedDiffInputBytes/2+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(remote, bytes.Repeat([]byte("b"), maxUnifiedDiffInputBytes/2+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := CompareFiles(local, remote, "large.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff.Status != FileStatusModified || !strings.Contains(diff.UnifiedDiff, "unified diff omitted") || len(diff.UnifiedDiff) > 512 {
+		t.Fatalf("resource-bounded unified diff = status %s, %q", diff.Status, diff.UnifiedDiff)
+	}
+}
 
 func TestCompareDirectories(t *testing.T) {
 	// Create temp directories for testing
@@ -208,7 +302,7 @@ func TestCollectFiles(t *testing.T) {
 	// Verify all expected files are present
 	fileMap := make(map[string]bool)
 	for _, f := range collected {
-		fileMap[f] = true
+		fileMap[filepath.ToSlash(f)] = true
 	}
 
 	for _, expected := range files {
@@ -222,6 +316,29 @@ func TestCollectFiles(t *testing.T) {
 		if filepath.HasPrefix(f, ".git") {
 			t.Errorf("Collected file %s should have been skipped (.git directory)", f)
 		}
+	}
+}
+
+func TestCompareDirectoriesRejectsSourceSymlinksWithoutReadingTargets(t *testing.T) {
+	for _, side := range []string{"local", "remote"} {
+		t.Run(side, func(t *testing.T) {
+			local := t.TempDir()
+			remote := t.TempDir()
+			secret := filepath.Join(t.TempDir(), "secret")
+			if err := os.WriteFile(secret, []byte("do-not-read"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			root := local
+			if side == "remote" {
+				root = remote
+			}
+			if err := os.Symlink(secret, filepath.Join(root, "README.md")); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			if _, err := CompareDirectories(local, remote); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+				t.Fatalf("%s source symlink was accepted: %v", side, err)
+			}
+		})
 	}
 }
 
@@ -333,6 +450,11 @@ func TestShouldSkipFile(t *testing.T) {
 			path: "features/audit.jsonl",
 			want: false,
 		},
+		{
+			name: ".template-version is local state",
+			path: ".template-version",
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -341,6 +463,26 @@ func TestShouldSkipFile(t *testing.T) {
 				t.Errorf("shouldSkipFile(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProtectedTemplateUpdateDirectories(t *testing.T) {
+	for _, path := range []string{
+		".git",
+		".state/audit.jsonl",
+		"archive/2025",
+		"locks",
+		"reports/testing",
+		"specs",
+	} {
+		if !isProtectedDirectory(path) {
+			t.Errorf("isProtectedDirectory(%q) = false", path)
+		}
+	}
+	for _, path := range []string{".github", "docs/.cursor", "templates/reports", "schemas"} {
+		if isProtectedDirectory(path) {
+			t.Errorf("framework directory %q must be updateable", path)
+		}
 	}
 }
 
@@ -431,37 +573,37 @@ func TestCompareFiles_InvalidPaths(t *testing.T) {
 // Helper function to write test files
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("Failed to write test file %s: %v", path, err)
 	}
 }
 
-func TestCollectFiles_SkipsDotfilesAndDocs(t *testing.T) {
+func TestCollectFiles_IncludesFrameworkDotfilesAndDocs(t *testing.T) {
 	testDir := t.TempDir()
 
 	// Create regular files that should be collected
 	writeFile(t, filepath.Join(testDir, "README.md"), "readme")
 	writeFile(t, filepath.Join(testDir, "schema.json"), "schema")
 
-	// Create dotfiles that should be skipped
+	// Framework dotfiles are part of the released scaffold.
 	writeFile(t, filepath.Join(testDir, ".gitignore"), "gitignore")
 	writeFile(t, filepath.Join(testDir, ".pre-commit-config.yaml"), "pre-commit")
 
-	// Create dotdirectory that should be skipped
+	// Framework dotdirectories are also included (except .git and .state).
 	dotDir := filepath.Join(testDir, ".github", "workflows")
 	if err := os.MkdirAll(dotDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(dotDir, "test.yml"), "workflow")
 
-	// Create docs folder that should be skipped
+	// Documentation includes editor integration sources and must be updated.
 	docsDir := filepath.Join(testDir, "docs")
 	if err := os.MkdirAll(docsDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(docsDir, "guide.md"), "guide")
 
-	// Create nested docs files that should be skipped
+	// Nested docs are included.
 	nestedDocsDir := filepath.Join(testDir, "docs", "api")
 	if err := os.MkdirAll(nestedDocsDir, 0o750); err != nil {
 		t.Fatal(err)
@@ -475,16 +617,32 @@ func TestCollectFiles_SkipsDotfilesAndDocs(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(reportsDir, "report.md"), "report")
 
+	stateDir := filepath.Join(testDir, ".state")
+	if err := os.MkdirAll(stateDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(stateDir, "audit.jsonl"), "local state")
+
+	specsDir := filepath.Join(testDir, "specs")
+	if err := os.MkdirAll(specsDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(specsDir, "tech-stack.md"), "project spec")
+
 	// Collect files
 	files, err := collectFiles(testDir)
 	if err != nil {
 		t.Fatalf("collectFiles() error = %v", err)
 	}
 
-	// Verify only non-dotfiles and non-docs are collected
 	expectedFiles := map[string]bool{
-		"README.md":   true,
-		"schema.json": true,
+		"README.md":               true,
+		"schema.json":             true,
+		".gitignore":              true,
+		".pre-commit-config.yaml": true,
+		filepath.Join(".github", "workflows", "test.yml"): true,
+		filepath.Join("docs", "guide.md"):                 true,
+		filepath.Join("docs", "api", "reference.md"):      true,
 	}
 
 	if len(files) != len(expectedFiles) {
@@ -497,13 +655,11 @@ func TestCollectFiles_SkipsDotfilesAndDocs(t *testing.T) {
 		}
 	}
 
-	// Verify dotfiles, docs, and reports are NOT in the results
-	unexpectedPatterns := []string{".gitignore", ".pre-commit", ".github", "docs/", "reports/", "."}
 	for _, file := range files {
-		for _, pattern := range unexpectedPatterns {
-			if filepath.Base(file) == pattern || filepath.Dir(file) == "docs" || filepath.Dir(file) == "reports" {
-				t.Errorf("File should have been skipped: %s (matches pattern: %s)", file, pattern)
-			}
+		if strings.HasPrefix(filepath.ToSlash(file), "reports/") ||
+			strings.HasPrefix(filepath.ToSlash(file), ".state/") ||
+			strings.HasPrefix(filepath.ToSlash(file), "specs/") {
+			t.Errorf("workspace-authored file should have been skipped: %s", file)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package feature
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -10,10 +11,12 @@ id: FTR-0001
 title: Sample Feature
 status: backlog
 owner: tester
+implementation_owner: implementer
 priority: high
 complexity: S
 created: 2023-01-01
 updated: 2023-01-02
+status_changed: 2023-01-01
 labels:
   - alpha
 dependencies:
@@ -22,6 +25,8 @@ dependencies:
 
 Intro text.
 
+<untrusted-content>
+
 ## Summary
 
 Summary details.
@@ -29,6 +34,8 @@ Summary details.
 ## Details
 
 More details.
+
+</untrusted-content>
 `
 
 func TestParseAndEncode(t *testing.T) {
@@ -42,6 +49,9 @@ func TestParseAndEncode(t *testing.T) {
 	if feat.Body == "" {
 		t.Fatalf("expected body content")
 	}
+	if feat.FrontMatter.ImplementationOwner != "implementer" || feat.FrontMatter.StatusChanged != "2023-01-01" {
+		t.Fatalf("lifecycle provenance not parsed: %+v", feat.FrontMatter)
+	}
 
 	encoded, err := feat.Encode()
 	if err != nil {
@@ -50,18 +60,44 @@ func TestParseAndEncode(t *testing.T) {
 	if !strings.Contains(string(encoded), "Sample Feature") {
 		t.Fatalf("encoded output missing data: %s", string(encoded))
 	}
+	if !strings.Contains(string(encoded), "implementation_owner: implementer") || !strings.Contains(string(encoded), "status_changed:") || !strings.Contains(string(encoded), "2023-01-01") {
+		t.Fatalf("encoded output dropped lifecycle provenance: %s", string(encoded))
+	}
 
 	feat.UpdateTimestamp()
 	if feat.FrontMatter.Updated == "" {
 		t.Fatalf("update timestamp not applied")
 	}
 
-	if feat.StatusDirectory("/root") != "/root/features/backlog" {
+	if feat.StatusDirectory("/root") != filepath.Join("/root", "features", "backlog") {
 		t.Fatalf("unexpected directory")
 	}
 	feat.FrontMatter.Status = "unknown"
 	if feat.StatusDirectory("/root") != "" {
 		t.Fatalf("expected empty directory for unknown status")
+	}
+}
+
+func TestParseAndEncodePreserveCRLFBody(t *testing.T) {
+	crlf := strings.ReplaceAll(sampleFeature, "\n", "\r\n")
+	_, expectedBody, ok := splitFrontmatter([]byte(crlf))
+	if !ok {
+		t.Fatal("test fixture frontmatter did not split")
+	}
+	feat, err := Parse("sample.md", []byte(crlf))
+	if err != nil {
+		t.Fatalf("parse CRLF feature: %v", err)
+	}
+	if feat.Body != string(expectedBody) {
+		t.Fatal("parse changed CRLF body bytes")
+	}
+	encoded, err := feat.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, encodedBody, ok := splitFrontmatter(encoded)
+	if !ok || string(encodedBody) != string(expectedBody) {
+		t.Fatal("encode changed CRLF body bytes")
 	}
 }
 
@@ -73,6 +109,11 @@ func TestParseErrors(t *testing.T) {
 	content := strings.Replace(sampleFeature, "id: FTR-0001", "id: [", 1)
 	if _, err := Parse("/tmp/sample.md", []byte(content)); err == nil {
 		t.Fatalf("expected yaml parse error")
+	}
+
+	unknown := strings.Replace(sampleFeature, "title: Sample Feature", "title: Sample Feature\nunknown_contract_field: must-not-be-dropped", 1)
+	if _, err := Parse("/tmp/sample.md", []byte(unknown)); err == nil || !strings.Contains(err.Error(), "unknown_contract_field") {
+		t.Fatalf("unknown frontmatter key was silently pruned: %v", err)
 	}
 }
 
@@ -91,13 +132,17 @@ func TestSetSectionAndAddMissingSections(t *testing.T) {
 		t.Fatalf("expected error for missing section")
 	}
 
-	feat.Body = "Intro\n\n"
-	defaults := map[string]string{"Summary": "Default summary"}
-	feat.AddMissingSections([]string{"Summary", "Details"}, defaults)
-	if !strings.Contains(feat.Body, "Default summary") {
+	feat.Body = "Intro\n\n<untrusted-content>\n\n## Summary\nExisting summary.\n\n</untrusted-content>\n"
+	defaults := map[string]string{"Problem Statement": "Default problem statement"}
+	if err := feat.AddMissingSections([]string{"Summary", "Problem Statement"}, defaults); err != nil {
+		t.Fatalf("add missing sections failed: %v", err)
+	}
+	if !strings.Contains(feat.Body, "Default problem statement") {
 		t.Fatalf("expected default content: %s", feat.Body)
 	}
-	feat.AddMissingSections([]string{"Summary"}, nil)
+	if err := feat.AddMissingSections([]string{"Summary"}, nil); err != nil {
+		t.Fatalf("idempotent add failed: %v", err)
+	}
 }
 
 func TestSetFieldAndHelpers(t *testing.T) {
@@ -107,14 +152,9 @@ func TestSetFieldAndHelpers(t *testing.T) {
 	}
 
 	assignments := map[string]string{
-		"id":           "FTR-9999",
 		"title":        "New Title",
-		"status":       "review",
-		"owner":        "owner",
 		"priority":     "medium",
 		"complexity":   "L",
-		"created":      "2024-01-01",
-		"updated":      "2024-01-02",
 		"epic":         "Epic",
 		"risk_notes":   "Risks",
 		"labels":       "one, two",
@@ -123,6 +163,11 @@ func TestSetFieldAndHelpers(t *testing.T) {
 	for key, value := range assignments {
 		if err := feat.SetField(key, value); err != nil {
 			t.Fatalf("set field %s failed: %v", key, err)
+		}
+	}
+	for _, key := range []string{"id", "status", "owner", "created", "updated", "implementation_owner", "status_changed"} {
+		if err := feat.SetField(key, "managed-value"); err == nil {
+			t.Fatalf("managed field %s was mutable", key)
 		}
 	}
 	if err := feat.SetField("unknown", "value"); err == nil {
@@ -176,19 +221,20 @@ Minimal feature without optional fields.
 		t.Fatalf("expected empty risk_notes, got: %s", feat.FrontMatter.RiskNotes)
 	}
 
-	// Re-encode and verify optional fields are omitted from output
+	// Re-encode and verify only truly optional fields are omitted.
 	encoded, err := feat.Encode()
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}
 
 	encodedStr := string(encoded)
-	// With omitempty, these fields should not appear in the YAML when empty
 	if strings.Contains(encodedStr, "epic:") {
 		t.Fatalf("expected epic field to be omitted from YAML when empty, got: %s", encodedStr)
 	}
-	if strings.Contains(encodedStr, "risk_notes:") {
-		t.Fatalf("expected risk_notes field to be omitted from YAML when empty, got: %s", encodedStr)
+	for _, required := range []string{"implementation_owner:", "status_changed:", "risk_notes:"} {
+		if !strings.Contains(encodedStr, required) {
+			t.Fatalf("expected required field %s in YAML, got: %s", required, encodedStr)
+		}
 	}
 
 	// Verify required fields are still present

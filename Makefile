@@ -1,12 +1,14 @@
 SHELL := /bin/bash
 GO ?= go
 GOFLAGS ?=
-GOSEC := $(GO) run github.com/securego/gosec/v2/cmd/gosec@latest
+GOSEC_VERSION ?= v2.25.0
+GOSEC := $(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
 BINARY := vb
 DIST_DIR := dist
 COVERAGE_FILE := coverage.out
+COVERAGE_MIN ?= 75.0
 
-.PHONY: build test coverage package clean scan fmt tidy pre-commit version-bump
+.PHONY: build test coverage-check coverage package clean scan fmt tidy pre-commit version-bump
 
 build:
 	$(GO) build $(GOFLAGS) ./...
@@ -19,13 +21,18 @@ tidy:
 
 test:
 	$(GO) test $(GOFLAGS) ./... -coverprofile=$(COVERAGE_FILE)
-	@awk 'NR==1 {print; next} {if (NF==3) {print $$1, $$2, 1} else {print}}' $(COVERAGE_FILE) > $(COVERAGE_FILE).tmp && mv $(COVERAGE_FILE).tmp $(COVERAGE_FILE)
+	@$(MAKE) coverage-check GO="$(GO)" COVERAGE_FILE="$(COVERAGE_FILE)" COVERAGE_MIN="$(COVERAGE_MIN)"
+
+coverage-check:
+	@test -s "$(COVERAGE_FILE)" || { echo "Coverage profile is missing: $(COVERAGE_FILE)"; exit 1; }
 	@$(GO) tool cover -func=$(COVERAGE_FILE)
-	@total=$$($(GO) tool cover -func=$(COVERAGE_FILE) | awk '/^total:/ {print $$3}'); \
-	if [ "$$total" != "100.0%" ]; then \
-		echo "Coverage must be 100%, got $$total"; \
+	@total=$$($(GO) tool cover -func=$(COVERAGE_FILE) | awk '/^total:/ {gsub(/%/, "", $$3); print $$3}'); \
+	awk -v total="$$total" -v minimum="$(COVERAGE_MIN)" \
+		'BEGIN { if ((total + 0) < (minimum + 0)) exit 1 }' || { \
+		echo "Measured coverage $${total}% is below the $(COVERAGE_MIN)% minimum"; \
 		exit 1; \
-	fi
+	}; \
+	echo "Measured coverage: $${total}% (minimum: $(COVERAGE_MIN)%)"
 
 coverage: test
 	@$(GO) tool cover -html=$(COVERAGE_FILE) -o coverage.html

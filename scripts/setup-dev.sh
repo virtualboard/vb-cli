@@ -27,19 +27,19 @@ print_error() {
 
 # Check if Go is installed
 if ! command -v go &> /dev/null; then
-    print_error "Go is not installed. Please install Go 1.25 or later."
+    print_error "Go is not installed. Please install exact Go 1.25.0."
     echo "Visit: https://golang.org/doc/install"
     exit 1
 fi
 
 # Check Go version
-GO_VERSION=$(go version | cut -d' ' -f3 | sed 's/go//')
-REQUIRED_VERSION="1.25"
-if ! printf '%s\n' "$REQUIRED_VERSION" "$GO_VERSION" | sort -V -C; then
-    print_error "Go version $GO_VERSION is too old. Please upgrade to Go $REQUIRED_VERSION or later."
+GO_VERSION=$(go env GOVERSION | sed 's/^go//')
+REQUIRED_VERSION="1.25.0"
+if [[ "$GO_VERSION" != "$REQUIRED_VERSION" ]]; then
+    print_error "Go version $GO_VERSION does not match required Go $REQUIRED_VERSION."
     exit 1
 fi
-print_status "Go version $GO_VERSION is compatible"
+print_status "Go version $GO_VERSION is exact"
 
 # Install pre-commit if not available
 if ! command -v pre-commit &> /dev/null; then

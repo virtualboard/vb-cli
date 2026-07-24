@@ -11,6 +11,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 
 	"github.com/virtualboard/vb-cli/internal/config"
+	"github.com/virtualboard/vb-cli/internal/frameworkschema"
 )
 
 // Result represents validation outcome for a single spec.
@@ -31,16 +32,24 @@ type Summary struct {
 // Validator performs schema validation for specs.
 type Validator struct {
 	mgr          *Manager
+	root         string
 	schemaLoader gojsonschema.JSONLoader
 	log          *logrus.Entry
 }
 
 // New creates a validator configured for the manager.
 func NewValidator(opts *config.Options, mgr *Manager) (*Validator, error) {
-	schemaPath := mgr.SchemaPath()
-	loader := gojsonschema.NewReferenceLoader("file://" + filepath.ToSlash(schemaPath))
+	if _, err := mgr.Lifecycle(); err != nil {
+		return nil, err
+	}
+	schemaData, err := frameworkschema.SystemSpec(opts.RootDir, mgr.SchemaPath())
+	if err != nil {
+		return nil, err
+	}
+	loader := gojsonschema.NewStringLoader(string(schemaData))
 	return &Validator{
 		mgr:          mgr,
+		root:         opts.RootDir,
 		schemaLoader: loader,
 		log:          opts.Logger().WithField("component", "spec-validator"),
 	}, nil
@@ -114,8 +123,14 @@ func (v *Validator) validateSingle(spec *Spec) Result {
 	}
 
 	// Date format validation
-	if _, err := time.Parse("2006-01-02", spec.FrontMatter.LastUpdated); err != nil {
+	lastUpdated, dateOK := parseSpecDate(spec.FrontMatter.LastUpdated)
+	if !dateOK {
 		errors = append(errors, "last_updated must be YYYY-MM-DD")
+	} else {
+		today, _ := parseSpecDate(time.Now().Format("2006-01-02"))
+		if lastUpdated.After(today) {
+			errors = append(errors, "last_updated cannot be in the future")
+		}
 	}
 
 	// Validate status is one of the allowed values
@@ -148,8 +163,18 @@ func (v *Validator) validateSingle(spec *Spec) Result {
 	if len(spec.FrontMatter.Applicability) == 0 {
 		errors = append(errors, "applicability must have at least one entry")
 	}
+	if status == "approved" {
+		errors = append(errors, validateApprovedBody(spec.FrontMatter.SpecType, spec.Body)...)
+	}
+	errors = append(errors, v.validateInternalLinks(spec)...)
 
 	return Result{Spec: spec, Errors: errors}
+}
+
+func parseSpecDate(value string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(value)
+	parsed, err := time.Parse("2006-01-02", trimmed)
+	return parsed, err == nil && parsed.Format("2006-01-02") == trimmed
 }
 
 // HasErrors indicates if any validation errors were found.

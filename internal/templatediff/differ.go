@@ -1,15 +1,30 @@
 package templatediff
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
+	"github.com/virtualboard/vb-cli/internal/util"
 )
+
+const maxComparisonFiles = 10000
+const maxComparisonEntries = 20000
+const maxComparisonDepth = 64
+const maxComparisonFileBytes int64 = 20 << 20
+const maxComparisonRetainedBytes int64 = 100 << 20
+const maxUnifiedDiffInputBytes = 4 << 20
+const maxUnifiedDiffLines = 200000
+
+var comparisonEntryLimit = maxComparisonEntries
 
 // CompareDirectories compares two template directories and returns the differences
 func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
@@ -29,6 +44,19 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 	remoteFiles, err := collectFiles(remoteDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect remote files: %w", err)
+	}
+	if len(localFiles) > maxComparisonFiles || len(remoteFiles) > maxComparisonFiles {
+		return nil, fmt.Errorf("template comparison exceeds %d files", maxComparisonFiles)
+	}
+	var retainedBytes int64
+	retain := func(contents ...[]byte) error {
+		for _, content := range contents {
+			retainedBytes += int64(len(content))
+			if retainedBytes > maxComparisonRetainedBytes {
+				return fmt.Errorf("template comparison exceeds %d retained bytes", maxComparisonRetainedBytes)
+			}
+		}
+		return nil
 	}
 
 	// Create maps for quick lookup
@@ -54,20 +82,27 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 
 		if !localMap[relPath] {
 			// File added in remote
-			content, err := os.ReadFile(remotePath) // #nosec G304 -- path is from validated template
+			content, mode, err := readRegularFileStateWithin(remoteDir, remotePath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read remote file %s: %w", relPath, err)
+			}
+			if err := retain(content); err != nil {
+				return nil, err
 			}
 			diff.Added = append(diff.Added, FileDiff{
 				Path:          relPath,
 				Status:        FileStatusAdded,
 				RemoteContent: content,
+				RemoteMode:    normalizedTemplateMode(relPath, mode),
 			})
 		} else {
 			// File exists in both, check if modified
-			fileDiff, err := CompareFiles(localPath, remotePath, relPath)
+			fileDiff, err := compareFilesWithin(localDir, remoteDir, localPath, remotePath, relPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to compare %s: %w", relPath, err)
+			}
+			if err := retain(fileDiff.LocalContent, fileDiff.RemoteContent, []byte(fileDiff.UnifiedDiff)); err != nil {
+				return nil, err
 			}
 
 			if fileDiff.Status == FileStatusModified {
@@ -82,14 +117,18 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 	for _, relPath := range localFiles {
 		if !remoteMap[relPath] && !isFeatureFile(relPath) && !shouldSkipFile(relPath) {
 			localPath := filepath.Join(localDir, relPath)
-			content, err := os.ReadFile(localPath) // #nosec G304 -- path is from validated local directory
+			content, mode, err := readRegularFileStateWithin(localDir, localPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read local file %s: %w", relPath, err)
+			}
+			if err := retain(content); err != nil {
+				return nil, err
 			}
 			diff.Removed = append(diff.Removed, FileDiff{
 				Path:         relPath,
 				Status:       FileStatusRemoved,
 				LocalContent: content,
+				LocalMode:    installedTemplateMode(relPath, mode),
 			})
 		}
 	}
@@ -105,32 +144,52 @@ func CompareDirectories(localDir, remoteDir string) (*TemplateDiff, error) {
 
 // CompareFiles compares two files and generates a unified diff if they differ
 func CompareFiles(localPath, remotePath, relPath string) (*FileDiff, error) {
-	// #nosec G304 -- paths are from validated directories
-	localContent, err := os.ReadFile(localPath)
+	return compareFilesWithin(filepath.Dir(localPath), filepath.Dir(remotePath), localPath, remotePath, relPath)
+}
+
+func compareFilesWithin(localRoot, remoteRoot, localPath, remotePath, relPath string) (*FileDiff, error) {
+	localContent, localMode, err := readRegularFileStateWithin(localRoot, localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
 
-	// #nosec G304 -- paths are from validated directories
-	remoteContent, err := os.ReadFile(remotePath)
+	remoteContent, remoteMode, err := readRegularFileStateWithin(remoteRoot, remotePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read remote file: %w", err)
 	}
 
-	// Quick byte comparison
-	if string(localContent) == string(remoteContent) {
+	remoteMode = normalizedTemplateMode(relPath, remoteMode)
+	localMode = installedTemplateMode(relPath, localMode)
+
+	// Quick byte and effective-mode comparison. Local permissions are intentionally
+	// not normalized: mode-only drift in an installed tree must be repaired.
+	if bytes.Equal(localContent, remoteContent) && localMode.Perm() == remoteMode.Perm() {
 		return &FileDiff{
 			Path:          relPath,
 			Status:        FileStatusUnchanged,
 			LocalContent:  localContent,
 			RemoteContent: remoteContent,
+			LocalMode:     localMode,
+			RemoteMode:    remoteMode,
 		}, nil
 	}
 
-	// Generate unified diff
-	diff, err := GenerateUnifiedDiff(string(localContent), string(remoteContent), relPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate diff: %w", err)
+	var diff string
+	if !bytes.Equal(localContent, remoteContent) {
+		if unifiedDiffIsBounded(localContent, remoteContent) {
+			// Generate a unified diff only when its line index and output remain
+			// predictably bounded. The exact bytes are still retained for CAS.
+			diff, err = GenerateUnifiedDiff(string(localContent), string(remoteContent), relPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate diff: %w", err)
+			}
+		} else {
+			diff = fmt.Sprintf("content differs; unified diff omitted (limit %d input bytes and %d lines per side)\n", maxUnifiedDiffInputBytes, maxUnifiedDiffLines)
+		}
+	}
+	if localMode.Perm() != remoteMode.Perm() {
+		modeDiff := fmt.Sprintf("mode %04o -> %04o\n", localMode.Perm(), remoteMode.Perm())
+		diff = modeDiff + diff
 	}
 
 	return &FileDiff{
@@ -139,7 +198,47 @@ func CompareFiles(localPath, remotePath, relPath string) (*FileDiff, error) {
 		UnifiedDiff:   diff,
 		LocalContent:  localContent,
 		RemoteContent: remoteContent,
+		LocalMode:     localMode,
+		RemoteMode:    remoteMode,
 	}, nil
+}
+
+func unifiedDiffIsBounded(localContent, remoteContent []byte) bool {
+	if len(localContent)+len(remoteContent) > maxUnifiedDiffInputBytes {
+		return false
+	}
+	return bytes.Count(localContent, []byte("\n")) <= maxUnifiedDiffLines &&
+		bytes.Count(remoteContent, []byte("\n")) <= maxUnifiedDiffLines
+}
+
+// normalizedTemplateMode canonicalizes a remote/staged file's mode to
+// whichever of the two blessed template modes (0755 executable, 0644 plain)
+// it represents. On Windows this can't be read back from the extracted
+// staging copy's Stat() at all: Go's Windows FileMode emulation never
+// reports an execute bit, whether the file was just extracted from an
+// archive or already installed. installedTemplateMode's path-based
+// convention is the only signal available there, so both sides of the
+// comparison must agree on it.
+func normalizedTemplateMode(relPath string, mode fs.FileMode) fs.FileMode {
+	if runtime.GOOS == "windows" {
+		return installedTemplateMode(relPath, mode)
+	}
+	if mode.Perm()&0o111 != 0 {
+		return 0o755
+	}
+	return 0o644
+}
+
+func installedTemplateMode(relPath string, mode fs.FileMode) fs.FileMode {
+	if runtime.GOOS != "windows" {
+		return mode.Perm()
+	}
+	normalized := filepath.ToSlash(relPath)
+	if strings.HasPrefix(normalized, "bin/") ||
+		(strings.HasPrefix(normalized, "scripts/") && strings.HasSuffix(normalized, ".sh")) {
+		return 0o755
+	}
+	return 0o644
 }
 
 // GenerateUnifiedDiff creates a unified diff string between two contents
@@ -156,58 +255,153 @@ func GenerateUnifiedDiff(localContent, remoteContent, filename string) (string, 
 
 // collectFiles walks a directory and returns all file paths relative to the root
 func collectFiles(root string) ([]string, error) {
-	var files []string
-
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Don't skip the root directory itself, even if it starts with a dot
-		isRoot := path == root
-
-		// Skip .git directory
-		if !isRoot && d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-
-		// Skip dotfiles and directories (like .pre-commit-config.yaml, .github, etc.)
-		// But don't skip the root directory itself
-		if !isRoot && strings.HasPrefix(d.Name(), ".") {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Get relative path for directory checks
-		relPath, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-
-		// Skip docs and reports directories
-		if d.IsDir() {
-			skipDirs := []string{"docs", "reports"}
-			for _, skipDir := range skipDirs {
-				if d.Name() == skipDir || strings.HasPrefix(relPath, skipDir+string(filepath.Separator)) {
-					return filepath.SkipDir
-				}
-			}
-		}
-
-		if !d.IsDir() {
-			files = append(files, relPath)
-		}
-
-		return nil
-	})
-
+	beforeRoot, err := os.Lstat(root)
 	if err != nil {
 		return nil, err
 	}
+	if !beforeRoot.IsDir() || beforeRoot.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("template comparison root is not a real directory: %s", root)
+	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	openedRoot, err := rootHandle.Stat(".")
+	if err != nil || !openedRoot.IsDir() || !os.SameFile(beforeRoot, openedRoot) {
+		return nil, fmt.Errorf("template comparison root changed while opening: %s", root)
+	}
+	currentRoot, err := os.Lstat(root)
+	if err != nil || currentRoot.Mode()&os.ModeSymlink != 0 || !currentRoot.IsDir() || !os.SameFile(beforeRoot, currentRoot) {
+		return nil, fmt.Errorf("template comparison root changed while opening: %s", root)
+	}
 
+	type pendingDirectory struct {
+		path  string
+		depth int
+	}
+	pending := []pendingDirectory{{path: ".", depth: 0}}
+	files := make([]string, 0)
+	entryCount := 0
+	for len(pending) > 0 {
+		last := len(pending) - 1
+		current := pending[last]
+		pending = pending[:last]
+		before, err := rootHandle.Lstat(current.path)
+		if err != nil {
+			return nil, err
+		}
+		if !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("refusing non-directory path in template comparison: %s", current.path)
+		}
+		directoryRoot, err := rootHandle.OpenRoot(current.path)
+		if err != nil {
+			return nil, err
+		}
+		opened, err := directoryRoot.Stat(".")
+		if err != nil || !opened.IsDir() || !os.SameFile(before, opened) {
+			_ = directoryRoot.Close()
+			return nil, fmt.Errorf("template comparison directory changed while opening: %s", current.path)
+		}
+		directory, err := directoryRoot.Open(".")
+		if err != nil {
+			_ = directoryRoot.Close()
+			return nil, err
+		}
+		for {
+			entries, readErr := directory.ReadDir(128)
+			for _, entry := range entries {
+				entryCount++
+				if entryCount > comparisonEntryLimit {
+					_ = directory.Close()
+					_ = directoryRoot.Close()
+					return nil, fmt.Errorf("template comparison exceeds %d entries", comparisonEntryLimit)
+				}
+				relPath := entry.Name()
+				if current.path != "." {
+					relPath = filepath.Join(current.path, entry.Name())
+				}
+				if entry.Type()&os.ModeSymlink != 0 {
+					_ = directory.Close()
+					_ = directoryRoot.Close()
+					return nil, fmt.Errorf("refusing symbolic link in template comparison: %s", relPath)
+				}
+				info, infoErr := directoryRoot.Lstat(entry.Name())
+				if infoErr != nil {
+					_ = directory.Close()
+					_ = directoryRoot.Close()
+					return nil, infoErr
+				}
+				if info.IsDir() {
+					if isProtectedDirectory(relPath) {
+						continue
+					}
+					if current.depth >= maxComparisonDepth {
+						_ = directory.Close()
+						_ = directoryRoot.Close()
+						return nil, fmt.Errorf("template comparison exceeds %d directory levels", maxComparisonDepth)
+					}
+					pending = append(pending, pendingDirectory{path: relPath, depth: current.depth + 1})
+					continue
+				}
+				if !info.Mode().IsRegular() {
+					_ = directory.Close()
+					_ = directoryRoot.Close()
+					return nil, fmt.Errorf("refusing non-regular path in template comparison: %s", relPath)
+				}
+				files = append(files, relPath)
+				if len(files) > maxComparisonFiles {
+					_ = directory.Close()
+					_ = directoryRoot.Close()
+					return nil, fmt.Errorf("template comparison exceeds %d files", maxComparisonFiles)
+				}
+			}
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			if readErr != nil {
+				_ = directory.Close()
+				_ = directoryRoot.Close()
+				return nil, readErr
+			}
+		}
+		if err := directory.Close(); err != nil {
+			_ = directoryRoot.Close()
+			return nil, err
+		}
+		if err := directoryRoot.Close(); err != nil {
+			return nil, err
+		}
+	}
+	sort.Strings(files)
 	return files, nil
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	content, _, err := readRegularFileState(path)
+	return content, err
+}
+
+func readRegularFileState(path string) ([]byte, fs.FileMode, error) {
+	return readRegularFileStateWithin(filepath.Dir(path), path)
+}
+
+func readRegularFileStateWithin(root, path string) ([]byte, fs.FileMode, error) {
+	content, info, err := util.ReadRegularFileWithin(root, path, maxComparisonFileBytes)
+	if err != nil {
+		return nil, 0, err
+	}
+	return content, info.Mode().Perm(), nil
+}
+
+func isProtectedDirectory(relPath string) bool {
+	normalized := filepath.ToSlash(relPath)
+	for _, protected := range []string{".git", ".state", "archive", "locks", "reports", "specs"} {
+		if normalized == protected || strings.HasPrefix(normalized, protected+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isFeatureFile returns true if the path is a feature specification file
@@ -228,12 +422,13 @@ func isFeatureFile(relPath string) bool {
 
 // shouldSkipFile returns true if the file should be skipped during template comparison
 func shouldSkipFile(relPath string) bool {
+	normalized := filepath.ToSlash(relPath)
 	// Skip features/INDEX.md - user-specific index file
-	if relPath == "features/INDEX.md" || relPath == filepath.Join("features", "INDEX.md") {
+	if normalized == "features/INDEX.md" {
 		return true
 	}
-	// Skip audit.jsonl - local append-only audit log, always diverges from template
-	if relPath == "audit.jsonl" {
+	// Skip generated/local state that never comes from a release archive.
+	if normalized == "audit.jsonl" || normalized == ".template-version" || normalized == ".template-manifest.json" {
 		return true
 	}
 	return false

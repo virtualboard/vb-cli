@@ -71,6 +71,20 @@ Body`,
 			wantErr: true,
 			errType: ErrInvalidFrontmatter,
 		},
+		{
+			name: "unknown frontmatter key",
+			input: `---
+spec_type: tech-stack
+title: Strict Contract
+status: draft
+last_updated: 2024-01-15
+applicability: [backend]
+unknown_contract_field: must-not-be-dropped
+---
+Body`,
+			wantErr: true,
+			errType: ErrInvalidFrontmatter,
+		},
 	}
 
 	for _, tt := range tests {
@@ -143,6 +157,24 @@ This is the tech stack specification.`
 	}
 	if len(reparsed.FrontMatter.Applicability) != 2 {
 		t.Errorf("expected 2 applicability entries, got %d", len(reparsed.FrontMatter.Applicability))
+	}
+}
+
+func TestParseAcceptsCRLFAndEncodesCanonicalLF(t *testing.T) {
+	original := "---\nspec_type: tech-stack\ntitle: Stack\nstatus: draft\nlast_updated: 2024-01-15\napplicability:\n  - backend\n---\nBody\n"
+	spec, err := Parse("test.md", []byte(strings.ReplaceAll(original, "\n", "\r\n")))
+	if err != nil {
+		t.Fatalf("parse CRLF spec: %v", err)
+	}
+	if strings.Contains(spec.Body, "\r") {
+		t.Fatal("CRLF normalization leaked carriage returns into the spec body")
+	}
+	encoded, err := spec.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "\r") {
+		t.Fatal("encoded spec did not use canonical LF line endings")
 	}
 }
 

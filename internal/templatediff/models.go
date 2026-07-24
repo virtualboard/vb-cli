@@ -1,5 +1,7 @@
 package templatediff
 
+import "io/fs"
+
 // FileStatus represents the status of a file in the comparison
 type FileStatus string
 
@@ -17,6 +19,8 @@ type FileDiff struct {
 	UnifiedDiff   string // Unified diff output (empty for added/removed)
 	LocalContent  []byte // Content of local file (nil if added)
 	RemoteContent []byte // Content of remote file (nil if removed)
+	LocalMode     fs.FileMode
+	RemoteMode    fs.FileMode
 }
 
 // TemplateDiff represents all differences between local and remote templates

@@ -73,13 +73,15 @@ func ParseMarkdown(content string) (*Data, error) {
 }
 
 // parseTableRow parses a single markdown table row into an Entry.
-// Expected format: | ID | Title | Status | Owner | P | C | Labels | Updated | File |
+// Canonical format:
+// | ID | Title | Status | Owner | P | C | Labels | Updated | Status Changed | File |
+// Legacy nine-column indexes without Status Changed remain readable.
 func parseTableRow(line string) (Entry, error) {
 	// Remove leading/trailing pipes and split by pipe
 	line = strings.Trim(line, "|")
 	parts := strings.Split(line, "|")
 
-	// We expect 9 columns
+	// We require at least the legacy 9 columns.
 	if len(parts) < 9 {
 		return Entry{}, nil
 	}
@@ -101,8 +103,15 @@ func parseTableRow(line string) (Entry, error) {
 		}
 	}
 
+	statusChanged := ""
+	pathColumn := 8
+	if len(parts) >= 10 {
+		statusChanged = parts[8]
+		pathColumn = 9
+	}
+
 	// Extract path from markdown link format: [path](url)
-	path := parts[8]
+	path := parts[pathColumn]
 	if strings.Contains(path, "](") {
 		// Extract the path from [path](url) format
 		start := strings.Index(path, "[")
@@ -113,14 +122,15 @@ func parseTableRow(line string) (Entry, error) {
 	}
 
 	return Entry{
-		ID:         parts[0],
-		Title:      parts[1],
-		Status:     parts[2],
-		Owner:      parts[3],
-		Priority:   parts[4],
-		Complexity: parts[5],
-		Labels:     labels,
-		Updated:    parts[7],
-		Path:       path,
+		ID:            parts[0],
+		Title:         parts[1],
+		Status:        parts[2],
+		Owner:         parts[3],
+		Priority:      parts[4],
+		Complexity:    parts[5],
+		Labels:        labels,
+		Updated:       parts[7],
+		StatusChanged: statusChanged,
+		Path:          path,
 	}, nil
 }

@@ -6,8 +6,9 @@ We release patches for security vulnerabilities in the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
-| 0.0.x   | :white_check_mark: |
+| 0.10.x  | :white_check_mark: |
+| 0.9.x   | :white_check_mark: |
+| < 0.9   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -32,11 +33,17 @@ If you discover a security vulnerability in vb-cli, please report it responsibly
 
 This project implements several security measures:
 
-- **Dependency Scanning**: Automated scanning with gosec
-- **Code Coverage**: 100% test coverage requirement
+- **Static Security Analysis**: Automated Go source scanning with gosec
+- **Code Coverage**: measured coverage with a non-synthetic minimum gate
 - **Secure File Permissions**: Proper file permission handling
-- **Input Validation**: JSON schema validation for all inputs
+- **Input Validation**: contract, schema, identifier, and path validation at trust boundaries
 - **Atomic Operations**: Safe file operations to prevent corruption
+
+Actor and owner strings, lock ownership, and declared command effects are
+cooperative coordination metadata. They are not authentication, an operating
+system sandbox, or a hostile multi-tenant authorization boundary. Deployments
+that need those properties must protect the workspace with filesystem controls
+and run `vb` behind an authenticated orchestrator.
 
 ## Security Updates
 

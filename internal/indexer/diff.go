@@ -274,6 +274,9 @@ func detectMetadataChanges(old, new Entry) []string {
 	if old.Updated != new.Updated {
 		changes = append(changes, fmt.Sprintf("updated: %s → %s", old.Updated, new.Updated))
 	}
+	if old.StatusChanged != new.StatusChanged {
+		changes = append(changes, fmt.Sprintf("status_changed: %s → %s", old.StatusChanged, new.StatusChanged))
+	}
 
 	return changes
 }

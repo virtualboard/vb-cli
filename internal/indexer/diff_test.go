@@ -380,6 +380,15 @@ func TestDetectMetadataChanges(t *testing.T) {
 		assert.Contains(t, changes[0], "updated:")
 	})
 
+	t.Run("status changed timestamp change", func(t *testing.T) {
+		old := Entry{StatusChanged: "2024-01-01"}
+		new := Entry{StatusChanged: "2024-01-02"}
+
+		changes := detectMetadataChanges(old, new)
+		assert.Len(t, changes, 1)
+		assert.Contains(t, changes[0], "status_changed:")
+	})
+
 	t.Run("multiple changes", func(t *testing.T) {
 		old := Entry{
 			Title:    "Feature 1",

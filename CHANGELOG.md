@@ -4,6 +4,137 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Strict, fence-aware feature-body parsing for exactly one ordered copy of the
+  14 canonical sections inside one untrusted-content boundary, including the
+  single unambiguous historical Links-boundary repair.
+- Transitive dependency, date-ordering, approved system-spec body, contained
+  Markdown-link, reviewer-separation, and status-readiness validation with
+  focused adversarial coverage.
+- Exact-token lock acquisition output (`--token`, `--token-only`), environment
+  root selection through `VIRTUALBOARD_ROOT`, and streaming bounded audit
+  queries.
+
+### Changed
+
+- Review now requires meaningful, fully checked acceptance criteria; done also
+  requires implementation evidence and a concrete artifact or reference.
+- Lock status never discloses acquisition tokens. Token-bearing records require
+  exact-token release, while owner-only release remains limited to legacy
+  tokenless records and forced release is explicitly administrative.
+- Windows self-upgrade now fails before download; the published AMD64 and ARM64
+  assets remain available for verified manual or bootstrap installation.
+
+### Security
+
+- Workspaces without `virtualboard.json` now fail closed unless a regular,
+  parseable pre-v0.8 `.template-version` or `version.txt` marker explicitly
+  identifies a legacy layout.
+- Modern contracts are read as bounded, identity-stable regular non-symlink
+  files and their complete semantic JSON—including authorization effects—is
+  authenticated against the canonical contract compiled into the CLI.
+- Feature writes, bulk fixes, lifecycle moves, and deletion now journal a
+  root-scoped capture transaction before changing the live path. Recovery
+  verifies captured identity, bytes, and mode; publishes destinations
+  exclusively; preserves non-cooperating edits; and fails closed for manual
+  reconciliation when crash state is ambiguous. Legacy move journals migrate
+  to the versioned transaction format before source removal.
+- A global board-graph guard serializes short feature-spec mutations and index
+  snapshots. Dependency changes are re-enumerated under that guard so
+  concurrent individually-valid updates cannot commit a cycle. Deletion is
+  limited to unreferenced backlog features and interactive approval is bound
+  to the exact authorized source revision.
+- Feature discovery now streams only direct children of every required
+  lifecycle directory with entry and aggregate-byte limits. Missing,
+  linked/reparse, nested, and non-regular roots or entries fail closed instead
+  of being interpreted as an empty board.
+- Lock and audit storage now retain root-scoped directory handles, reject
+  component links, hardlinks, malformed records, and identity swaps, and verify
+  persistence against the exact guarded inode. Atomic writers use private
+  staging and fail closed on concurrent namespace replacement.
+- The upgrader retains checksum-bound handles, validates an exactly framed
+  embedded version marker without executing downloaded bytes, privately stages
+  on the target filesystem, serializes activation, and restores the prior
+  executable after ambiguous replacement.
+- Release publication now reconciles exact names, sizes, states, and available
+  digests only inside a source-bound draft before one publish transition. It
+  safely resumes ambiguous draft operations, never deletes a release, and ships
+  native Windows ARM64 alongside Windows AMD64.
+
+### Changed
+
+- Bump `golang.org/x/term` from 0.43.0 to 0.45.0 (transitive `golang.org/x/sys`
+  0.44.0 → 0.47.0); incorporates [#57](https://github.com/virtualboard/vb-cli/pull/57)
+- Bump the commit-pinned `actions/checkout` reference used by `ci.yml` and
+  `release.yml` to v7.0.1; incorporates [#55](https://github.com/virtualboard/vb-cli/pull/55)
+- Bump the commit-pinned `actions/setup-go` reference used by `ci.yml` and
+  `release.yml` to v7.0.0; incorporates [#58](https://github.com/virtualboard/vb-cli/pull/58)
+
+### Fixed
+
+- Bound the compiled Cursor and OpenCode authorization digests to the exact
+  payload bytes in the coordinated template v0.8.0 release candidate.
+
+## [v0.10.0] - 2026-07-10
+
+### Added
+
+- Runtime support for the workspace `virtualboard.json` lifecycle, ownership,
+  identity, path, filename, and slug contracts.
+- Explicit mutation identity through global `--actor`, `VIRTUALBOARD_ACTOR`,
+  or `AGENT_ID`; operating-system usernames are never treated as agent actors.
+- Preflighted, dry-run-capable `migrate lifecycle-metadata` with explicit
+  provenance mappings, multi-owner administrative override, rollback, and
+  audit evidence.
+- Deterministic `vb index --check` and lifecycle compatibility coverage against
+  the released template.
+- Release-candidate smoke coverage that drives a built binary through template
+  initialization, validation, index drift, Cursor, and OpenCode installation.
+
+### Changed
+
+- New features emit `implementation_owner`, `status_changed`, and `risk_notes`;
+  review handback restores only the preserved implementation owner.
+- Managed lifecycle fields and feature basenames are immutable through ordinary
+  updates, while safe content/template fixes refresh `updated`.
+- Initialization consumes the stable, versioned template release asset and
+  verifies the SHA-256 digest compiled into each release binary.
+- Release automation is least-privilege, commit-pinned, cross-platform, and
+  refuses to replace an existing release. It derives the coordinated template
+  from source, downloads it once for every build, runs native macOS/Windows
+  tests, and emits checksums plus build-provenance attestations.
+
+### Security
+
+- Feature mutations enforce frontmatter ownership and active locks, duplicate
+  IDs fail closed, configured paths and output targets are workspace-contained,
+  and non-regular feature files are rejected.
+- Upgrade downloads use bounded HTTPS clients, strict release/checksum parsing,
+  token-safe API authentication, retained verified file handles, digest- and
+  version-bound durable staging, serialized atomic activation, and rollback.
+- IDE installation pins Claude to the coordinated template tag, authenticates
+  Cursor and OpenCode payloads against compiled SHA-256 inventories, rejects
+  destination symlinks and unlisted OpenCode files, and normalizes installed
+  modes.
+- Audit appends use bounded cross-process locking, re-read the chain tail under
+  lock, reject corrupt tails, and use an unambiguous versioned hash format while
+  retaining verification compatibility with legacy entries.
+- Lock acquisition uses an unguessable 256-bit token and a cross-process per-ID
+  guard. Expiry cleanup, owner release, operational release, and forced
+  replacement compare the exact acquisition immediately before mutation, while
+  fully written lock bytes are published atomically and tokenless v0.9 records
+  remain readable. Internal feature mutations and move recovery use a
+  callback-scoped process guard instead of a one-minute lease that could expire
+  during live work.
+
+### Fixed
+
+- JSON validation failures now return nonzero, index dry-runs report truthfully,
+  and lifecycle moves roll back on filesystem failure.
+- Validation now detects broken internal links, duplicate IDs, and modified
+  feature files whose `updated` date was not refreshed.
+
 ## [v0.9.0] - 2026-05-17
 
 ### Changed
