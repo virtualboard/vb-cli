@@ -661,11 +661,11 @@ func (m *Manager) readTransactionFile(path string) (transactionFileState, error)
 }
 
 func (transaction *featureMutationTransaction) expectedMatches(state transactionFileState) bool {
-	return state.exists && digestBytes(state.data) == transaction.ExpectedSHA256 && uint32(state.info.Mode().Perm()) == transaction.ExpectedMode
+	return state.exists && digestBytes(state.data) == transaction.ExpectedSHA256 && util.PermMatchesRequested(state.info.Mode(), fs.FileMode(transaction.ExpectedMode))
 }
 
 func (transaction *featureMutationTransaction) plannedMatches(state transactionFileState) bool {
-	return state.exists && digestBytes(state.data) == transaction.PlannedSHA256 && uint32(state.info.Mode().Perm()) == transaction.PlannedMode
+	return state.exists && digestBytes(state.data) == transaction.PlannedSHA256 && util.PermMatchesRequested(state.info.Mode(), fs.FileMode(transaction.PlannedMode))
 }
 
 func relativeTransactionPath(root, path string) (string, error) {

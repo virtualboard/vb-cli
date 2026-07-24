@@ -634,13 +634,42 @@ func acquireDirectoryReplaceLease(target string) (*directoryReplaceLease, string
 	return &directoryReplaceLease{path: leasePath, record: record, file: file}, previousNonce, nil
 }
 
+// verifyOwnership confirms the lease path still names the retained locked
+// inode and that its content still matches the record this holder wrote.
+// Content is read back through the retained handle rather than a fresh open:
+// Windows enforces the acquired byte-range lock across handles, so a second
+// handle reading the same locked range fails closed even for this same
+// process, unlike POSIX advisory locks.
+func (lease *directoryReplaceLease) verifyOwnership() error {
+	ownershipChanged := errors.New("directory replacement lease ownership changed; refusing to release it")
+	pathInfo, err := os.Lstat(lease.path)
+	if err != nil || !pathInfo.Mode().IsRegular() {
+		return ownershipChanged
+	}
+	heldInfo, err := lease.file.Stat()
+	if err != nil || !os.SameFile(pathInfo, heldInfo) {
+		return ownershipChanged
+	}
+	if _, err := lease.file.Seek(0, io.SeekStart); err != nil {
+		return ownershipChanged
+	}
+	data, err := io.ReadAll(io.LimitReader(lease.file, 4097))
+	if err != nil || len(data) > 4096 {
+		return ownershipChanged
+	}
+	current, err := parseDirectoryReplaceLease(data)
+	if err != nil || current != lease.record {
+		return ownershipChanged
+	}
+	return nil
+}
+
 func (lease *directoryReplaceLease) release() error {
 	if lease == nil || lease.file == nil {
 		return nil
 	}
-	current, err := readDirectoryReplaceLease(lease.path)
-	if err != nil || current != lease.record {
-		return errors.New("directory replacement lease ownership changed; refusing to release it")
+	if err := lease.verifyOwnership(); err != nil {
+		return err
 	}
 	// A retained journal needs the exact nonce in this record so the next
 	// lease-holder can prove it is recovering this operation. Remove the lease
@@ -688,14 +717,6 @@ func writeDirectoryReplaceLease(path string, record directoryReplaceLeaseRecord)
 	}
 	remove = false
 	return nil
-}
-
-func readDirectoryReplaceLease(path string) (directoryReplaceLeaseRecord, error) {
-	data, err := readSecureRegularFile(path, 4096)
-	if err != nil {
-		return directoryReplaceLeaseRecord{}, err
-	}
-	return parseDirectoryReplaceLease(data)
 }
 
 func parseDirectoryReplaceLease(data []byte) (directoryReplaceLeaseRecord, error) {
