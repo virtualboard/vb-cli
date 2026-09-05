@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +42,14 @@ func NewManager(opts *config.Options) *Manager {
 }
 
 // auditEvent records a mutating operation to the audit log. Best-effort only.
+//
+// A dry run records nothing. The audit log is hash-chained, so an entry for an
+// operation that never happened permanently shifts every subsequent hash —
+// `--dry-run` would silently rewrite the very history it claims not to touch.
 func (m *Manager) auditEvent(action, featureID, details string) {
+	if m.opts.DryRun {
+		return
+	}
 	if m.auditLog != nil {
 		_ = m.auditLog.Log(action, currentUser(), featureID, details)
 	}
@@ -93,18 +99,52 @@ func (m *Manager) LocksDir() string {
 	return filepath.Join(m.opts.RootDir, "locks")
 }
 
-// NextID calculates the next available feature ID (e.g., FTR-0005).
+// NextID returns the next unused feature ID.
+//
+// The scan deliberately reaches beyond the local working tree, because two real
+// collisions proved a local scan is not enough:
+//
+//   - FTR-0152 was minted twice 69 seconds apart by two git worktrees, which
+//     have separate working trees but share a single .git.
+//   - FTR-0139 was minted twice two hours apart, the second time from a branch
+//     that did not contain the first.
+//
+// A lock fixes neither: the two processes see genuinely different filesystems,
+// so each legitimately computes the same maximum. The fix is to widen what
+// "already taken" means. Any git failure degrades to the local-only scan, so
+// this still works in a plain directory that is not a repository at all.
 func (m *Manager) NextID() (string, error) {
 	featuresDir := m.FeaturesDir()
-	if _, statErr := os.Stat(featuresDir); statErr != nil {
-		if errors.Is(statErr, os.ErrNotExist) {
+
+	names, err := listFeatureFiles(featuresDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			return "FTR-0001", nil
 		}
-		return "", statErr
+		return "", err
 	}
-	maxID := 0
-	err := filepath.WalkDir(featuresDir, func(path string, d fs.DirEntry, err error) error {
 
+	maxID := maxIDIn(names)
+	if n := worktreeMaxID(featuresDir); n > maxID {
+		maxID = n
+	}
+	if n := historyMaxID(featuresDir); n > maxID {
+		maxID = n
+	}
+
+	return fmt.Sprintf("FTR-%04d", maxID+1), nil
+}
+
+// listFeatureFiles returns the base names of every file beneath dir. A missing
+// directory surfaces as os.ErrNotExist so callers can distinguish "no board
+// yet" from a genuine read failure.
+func listFeatureFiles(dir string) ([]string, error) {
+	if _, err := os.Stat(dir); err != nil {
+		return nil, err
+	}
+
+	var names []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return fs.SkipDir
@@ -114,22 +154,13 @@ func (m *Manager) NextID() (string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		name := filepath.Base(path)
-		matches := idPattern.FindStringSubmatch(name)
-		if len(matches) == 2 {
-			idNum, convErr := strconv.Atoi(matches[1])
-			if convErr == nil && idNum > maxID {
-				maxID = idNum
-			}
-		}
+		names = append(names, filepath.Base(path))
 		return nil
 	})
-
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+		return nil, err
 	}
-
-	return fmt.Sprintf("FTR-%04d", maxID+1), nil
+	return names, nil
 }
 
 // LoadByID returns the feature with matching ID.
