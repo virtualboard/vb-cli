@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/virtualboard/vb-cli/internal/testutil"
 )
@@ -13,12 +14,21 @@ import (
 // git runs a git command in dir and fails the test on error.
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	// Auto maintenance is the one thing git does asynchronously: `git commit`
+	// may leave a detached gc writing into .git after the command returns, and a
+	// file appearing while the temp directory is being removed fails cleanup with
+	// ENOTEMPTY. Turn it off, and ignore the machine's own git configuration so a
+	// developer's or a CI runner's settings cannot turn it back on.
+	cmd := exec.Command("git", append([]string{
+		"-c", "gc.auto=0",
+		"-c", "maintenance.auto=false",
+	}, args...)...)
 	cmd.Dir = dir
 	// Scrub inherited GIT_* state. When the suite runs from a git hook, GIT_DIR
 	// and GIT_INDEX_FILE point at the outer repository and these commands would
 	// operate on it instead of the fixture.
 	cmd.Env = append(scrubGitEnv(os.Environ()),
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
 	)
@@ -35,6 +45,19 @@ func initRepo(t *testing.T, root string) {
 	git(t, root, "init", "-q", "-b", "main")
 	git(t, root, "add", "-A")
 	git(t, root, "commit", "-q", "-m", "board")
+
+	// Tear the repository down before Go removes the temp directory. Go's own
+	// cleanup gets one attempt and reports ENOTEMPTY if anything appears while it
+	// walks the tree; retrying here absorbs a straggling git process instead of
+	// failing the test that happened to run last.
+	t.Cleanup(func() {
+		for attempt := 0; attempt < 5; attempt++ {
+			if err := os.RemoveAll(root); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
 }
 
 // writeFeature drops a minimally-valid feature file into a backlog directory.
