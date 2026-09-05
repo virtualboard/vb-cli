@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [v0.9.1] - 2026-09-04
 
+### Changed
+
+- Bump `github.com/sirupsen/logrus` from 1.9.4 to 1.10.2; incorporates [#64](https://github.com/virtualboard/vb-cli/pull/64)
+- Bump `github.com/stretchr/testify` from 1.11.1 to 1.12.1 (drops the `github.com/davecgh/go-spew` indirect dependency, adds `go.yaml.in/yaml/v3`); incorporates [#63](https://github.com/virtualboard/vb-cli/pull/63)
+
 ### Fixed
 
 - `vb new` now mints feature IDs from the whole repository instead of a single working tree. The scan additionally covers the working tree of every sibling git worktree and every ID that has ever appeared under `features/` on any ref, closing the window that minted `FTR-0152` and `FTR-0139` twice on the same board. Any git failure degrades to the previous local-only scan, so a board that is not a git repository behaves exactly as before
