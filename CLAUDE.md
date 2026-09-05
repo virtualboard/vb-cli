@@ -239,7 +239,10 @@ All commands use a consistent response pattern via `cmd/helpers.go:respond()`:
 - Applies selected changes and updates `.template-version`
 
 ### 3. Feature Creation
-- Generates unique ID (FEAT-XXX)
+- Generates unique ID (FTR-XXXX) from the highest ID taken anywhere in the
+  repository: the local tree, every sibling git worktree's tree, and every ID
+  that has ever appeared under `features/` on any ref. Git is optional — any
+  git failure falls back to the local-only scan (`internal/feature/idscan.go`)
 - Creates file in backlog with template
 - Sets timestamps, slugified filename
 
