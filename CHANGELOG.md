@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [v0.9.1] - 2026-09-04
+
+### Fixed
+
+- `vb new` now mints feature IDs from the whole repository instead of a single working tree. The scan additionally covers the working tree of every sibling git worktree and every ID that has ever appeared under `features/` on any ref, closing the window that minted `FTR-0152` and `FTR-0139` twice on the same board. Any git failure degrades to the previous local-only scan, so a board that is not a git repository behaves exactly as before
+- `--dry-run` no longer appends to the audit log. The log is hash-chained, so an entry for an operation that never happened permanently shifted every subsequent `entry_hash` — a dry run silently rewrote the history it promises not to touch
+- `vb` no longer inherits `GIT_*` environment variables when invoking git. `git commit` exports `GIT_DIR` and `GIT_INDEX_FILE` to its hooks, usually as relative paths, so a `vb` command run from inside a hook resolved them against the hook's repository instead of the requested one
+
 ## [v0.9.0] - 2026-05-17
 
 ### Changed

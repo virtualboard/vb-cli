@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/virtualboard/vb-cli/internal/testutil"
@@ -145,5 +146,201 @@ func TestNextIDSeesSiblingWorktree(t *testing.T) {
 	}
 	if got != "FTR-0100" {
 		t.Fatalf("expected FTR-0100 (0099 is uncommitted in a sibling worktree), got %s", got)
+	}
+}
+
+// stubGit puts a fake `git` first on PATH. The degradation paths below cannot
+// be provoked with a real repository — `git rev-parse --show-prefix` does not
+// fail once `--show-toplevel` has succeeded — so the failure is injected here.
+func stubGit(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "git")
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatalf("write stub git: %v", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("chmod stub git: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// Every git call in the worktree scan is optional: a failure means "no extra
+// ids known", never a failed `vb new`.
+func TestWorktreeMaxIDDegradesOnGitFailure(t *testing.T) {
+	cases := []struct {
+		name   string
+		script string
+	}{
+		{
+			name:   "toplevel fails",
+			script: "#!/bin/sh\nexit 1\n",
+		},
+		{
+			name:   "toplevel reports nothing",
+			script: "#!/bin/sh\nexit 0\n",
+		},
+		{
+			name: "prefix fails",
+			script: "#!/bin/sh\n" +
+				"case \"$*\" in \"rev-parse --show-toplevel\") echo /tmp; exit 0;; esac\n" +
+				"exit 1\n",
+		},
+		{
+			name: "worktree list fails",
+			script: "#!/bin/sh\n" +
+				"case \"$*\" in\n" +
+				"  \"rev-parse --show-toplevel\") echo /tmp; exit 0;;\n" +
+				"  \"rev-parse --show-prefix\") exit 0;;\n" +
+				"esac\n" +
+				"exit 1\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stubGit(t, tc.script)
+			if got := worktreeMaxID(t.TempDir()); got != 0 {
+				t.Fatalf("expected 0 when git fails, got %d", got)
+			}
+		})
+	}
+}
+
+// Output too large to scan is treated as no output rather than a hard failure,
+// so a pathological repository still degrades to the local-only scan.
+func TestRunGitRejectsUnscannableOutput(t *testing.T) {
+	dir := t.TempDir()
+	big := filepath.Join(dir, "big.txt")
+	// One line larger than runGit's 4MB scanner buffer.
+	if err := os.WriteFile(big, append([]byte(strings.Repeat("a", 5<<20)), '\n'), 0o600); err != nil {
+		t.Fatalf("write oversized output: %v", err)
+	}
+	stubGit(t, "#!/bin/sh\ncat "+big+"\n")
+
+	if lines, ok := runGit(dir, "log"); ok || lines != nil {
+		t.Fatalf("expected the oversized line to be rejected, got ok=%v lines=%d", ok, len(lines))
+	}
+}
+
+// sameDir resolves symlinks, and an unresolvable path is simply not the local
+// tree — a pruned worktree must not be mistaken for it.
+func TestSameDirWithUnresolvablePaths(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "gone")
+
+	if !sameDir(dir, dir) {
+		t.Fatal("identical paths must match")
+	}
+	if sameDir(missing, dir) {
+		t.Fatal("an unresolvable first path must not match")
+	}
+	if sameDir(dir, missing) {
+		t.Fatal("an unresolvable second path must not match")
+	}
+}
+
+// A sibling worktree checked out from a branch without a board has nothing to
+// contribute and must be skipped rather than block creation.
+func TestNextIDSkipsWorktreeWithoutBoard(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	mgr := NewManager(fix.Options(t, false, false, false))
+
+	writeFeature(t, filepath.Join(mgr.FeaturesDir(), "backlog"), "FTR-0004")
+	initRepo(t, fix.Root)
+
+	sibling := filepath.Join(t.TempDir(), "wt")
+	git(t, fix.Root, "worktree", "add", "-q", "-b", "boardless", sibling)
+	if err := os.RemoveAll(filepath.Join(sibling, ".virtualboard")); err != nil {
+		t.Fatalf("remove sibling board: %v", err)
+	}
+
+	got, err := mgr.NextID()
+	if err != nil {
+		t.Fatalf("NextID failed: %v", err)
+	}
+	if got != "FTR-0005" {
+		t.Fatalf("expected FTR-0005 from the local scan alone, got %s", got)
+	}
+}
+
+// A features directory that cannot be reached is a genuine failure, not an
+// empty board: handing out FTR-0001 there would collide with every existing id.
+func TestNextIDPropagatesUnreachableFeaturesDir(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	opts := fix.Options(t, false, false, false)
+	mgr := NewManager(opts)
+
+	// Replace the workspace with a regular file so features/ resolves through a
+	// non-directory (ENOTDIR) instead of merely being absent.
+	if err := os.RemoveAll(opts.RootDir); err != nil {
+		t.Fatalf("remove workspace: %v", err)
+	}
+	if err := os.WriteFile(opts.RootDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+
+	if _, err := mgr.NextID(); err == nil {
+		t.Fatal("expected NextID to fail when the features path is unreachable")
+	}
+}
+
+// An unreadable status directory must fail the scan. Silently skipping it would
+// under-report the highest id, which is exactly how an id gets minted twice.
+func TestNextIDPropagatesUnreadableStatusDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions")
+	}
+
+	fix := testutil.NewFixture(t)
+	mgr := NewManager(fix.Options(t, false, false, false))
+
+	backlog := filepath.Join(mgr.FeaturesDir(), "backlog")
+	if err := os.Chmod(backlog, 0o000); err != nil {
+		t.Fatalf("chmod backlog: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(backlog, 0o750) })
+
+	if _, err := mgr.NextID(); err == nil {
+		t.Fatal("expected NextID to fail on an unreadable status directory")
+	}
+}
+
+// A board with no features directory yet starts numbering at one.
+func TestNextIDOnEmptyBoard(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	mgr := NewManager(fix.Options(t, false, false, false))
+
+	if err := os.RemoveAll(mgr.FeaturesDir()); err != nil {
+		t.Fatalf("remove features dir: %v", err)
+	}
+
+	got, err := mgr.NextID()
+	if err != nil {
+		t.Fatalf("NextID failed: %v", err)
+	}
+	if got != "FTR-0001" {
+		t.Fatalf("expected FTR-0001 on an empty board, got %s", got)
+	}
+}
+
+// Files that are not feature specs live under features/ too (README, .gitkeep)
+// and must not influence the next id.
+func TestNextIDIgnoresNonFeatureFiles(t *testing.T) {
+	fix := testutil.NewFixture(t)
+	mgr := NewManager(fix.Options(t, false, false, false))
+
+	backlog := filepath.Join(mgr.FeaturesDir(), "backlog")
+	writeFeature(t, backlog, "FTR-0003")
+	if err := os.WriteFile(filepath.Join(backlog, "README.md"), []byte("notes"), 0o600); err != nil {
+		t.Fatalf("write stray file: %v", err)
+	}
+
+	got, err := mgr.NextID()
+	if err != nil {
+		t.Fatalf("NextID failed: %v", err)
+	}
+	if got != "FTR-0004" {
+		t.Fatalf("expected FTR-0004, got %s", got)
 	}
 }

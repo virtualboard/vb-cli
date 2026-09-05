@@ -11,6 +11,9 @@ Contributor-facing APIs in `internal/` are deliberately kept small. The most
 commonly extended packages:
 
 - `internal/feature` – feature spec CRUD, status workflow, body sections.
+  `idscan.go` holds the repository-wide ID scan behind `NextID`: sibling
+  worktrees and git history are consulted through `runGit`, and every git
+  failure degrades to the local-only scan rather than failing `vb new`.
 - `internal/validator` – schema + workflow + dependency rules.
 - `internal/indexer` – Markdown/JSON/HTML index generators with diff detection.
 - `internal/audit` – the SHA-256 hash-chained audit log. `Logger` appends new
