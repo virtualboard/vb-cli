@@ -8,7 +8,7 @@
 
 - `--json` – Output results as structured JSON.
 - `--verbose` – Enable informative logging.
-- `--dry-run` – Simulate actions without modifying files.
+- `--dry-run` – Simulate actions without modifying files, including the audit log.
 - `--root` – Set the repository root (defaults to current directory).
 - `--log-file` – Write verbose logs to a file.
 
@@ -124,6 +124,19 @@ vb install claude --json
 
 ### `vb new <title> [labels...]`
 Create a new feature spec in the backlog using the canonical template.
+
+**ID allocation:** the next `FTR-####` is the highest ID already taken anywhere in
+the repository, plus one. "Anywhere" means three places:
+
+- the local `.virtualboard/features/` tree,
+- the working tree of every sibling git worktree, which catches IDs that exist but
+  have not been committed yet,
+- every ID that has ever appeared under `features/` on any ref, which catches IDs
+  taken on branches the current one does not contain, including IDs created by a
+  renumbering rename.
+
+Git is optional. If git is missing, the directory is not a repository, or any git
+call fails, the scan falls back to the local tree alone.
 
 ### `vb move <id> <status> [owner]`
 Move a feature between workflow statuses and optionally assign an owner.

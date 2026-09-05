@@ -389,3 +389,35 @@ func TestRenameToMatchTitleDryRun(t *testing.T) {
 		t.Fatalf("dry-run should not remove old file: %v", err)
 	}
 }
+
+// A dry run must not touch the hash-chained audit log. An entry for an
+// operation that never happened shifts every subsequent entry_hash, so
+// `--dry-run` would silently rewrite the history it claims not to touch.
+func TestDryRunLeavesAuditLogUntouched(t *testing.T) {
+	fix := testutil.NewFixture(t)
+
+	// A real create first, so there is an existing chain to corrupt.
+	mgr := NewManager(fix.Options(t, false, false, false))
+	if _, err := mgr.CreateFeature("Real Feature", nil); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	auditPath := filepath.Join(fix.Options(t, false, false, false).RootDir, "audit.jsonl")
+	before, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatalf("expected an audit log to exist: %v", err)
+	}
+
+	dryMgr := NewManager(fix.Options(t, false, false, true))
+	if _, err := dryMgr.CreateFeature("Dry Feature", nil); err != nil {
+		t.Fatalf("dry-run create failed: %v", err)
+	}
+
+	after, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatalf("read audit log: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("dry run appended to the audit log\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}

@@ -2,7 +2,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](docs/DEVELOPMENT.md#development)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-blue.svg)](docs/DEVELOPMENT.md#development)
-[![Release](https://img.shields.io/badge/version-v0.9.0-informational.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/version-v0.9.1-informational.svg)](CHANGELOG.md)
 [![Semantic Versioning](https://img.shields.io/badge/semver-2.0.0-blue.svg)](https://semver.org/spec/v2.0.0.html)
 
 VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, and shipping feature specifications that live under `.virtualboard/`. It keeps teams in sync by scaffolding new specs, guarding workflow transitions, surfacing validation issues early, and generating stakeholder-friendly indexes.
@@ -11,7 +11,7 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 
 - Initialise a repository with `vb init`, which downloads and expands the VirtualBoard template archive into `.virtualboard/`. Keep your workspace up-to-date with `vb init --update` for interactive template updates.
 - Install IDE integrations with `vb install <ide>` for Claude Code, Cursor, and OpenCode.
-- Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`).
+- Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`). `vb new` allocates IDs from the whole repository — sibling git worktrees and every branch's history included — so concurrent boards never mint the same `FTR-####`.
 - Validate both feature specs and system specs with `vb validate`, supporting schema validation for features (workflow, dependencies) and specs (architectural blueprints). Use `--only-features` or `--only-specs` to validate specific types.
 - Inspect the tamper-evident audit log with `vb audit`, supporting filters on every column (action, actor, feature_id, time range, details substring), six output formats (human, table, jsonl, json, xml, agent), and `--verify` to walk the SHA-256 hash chain.
 - Regenerate indices in Markdown/JSON/HTML with `vb index`.
