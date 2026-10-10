@@ -202,7 +202,10 @@ func TestVerifyEntryHashMismatch(t *testing.T) {
 	}
 }
 
-func TestVerifyPrevHashMismatch(t *testing.T) {
+// Editing prev_hash is still caught — it is part of the entry's own hash, so
+// the alteration surfaces as entry_hash rather than going unnoticed. Verify
+// stopped asserting ORDER; it did not stop noticing an edit to this field.
+func TestVerifyPrevHashEditIsStillAnAlteration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
 	entries := writeEntries(t, path, "create", "move")
@@ -212,7 +215,44 @@ func TestVerifyPrevHashMismatch(t *testing.T) {
 	if !errors.As(err, &ve) {
 		t.Fatalf("expected *VerifyError, got %v", err)
 	}
-	if ve.Kind != "prev_hash" {
-		t.Fatalf("expected prev_hash mismatch, got %s", ve.Kind)
+	if ve.Kind != "entry_hash" {
+		t.Fatalf("expected entry_hash mismatch, got %s", ve.Kind)
+	}
+}
+
+// THE CASE THE OLD Verify FAILED ON, and the reason this card exists: two
+// branches each appended, a merge interleaved them, so entry 1's prev_hash
+// names a tip that is no longer the line above it. Nothing was altered — every
+// entry still hashes to what it carries — and Verify must say so.
+func TestVerifyPassesAcrossAMergeJoin(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	entries := writeEntries(t, path, "create", "move")
+
+	// Re-seat the second entry on a DIFFERENT branch's tip and re-sign it, which
+	// is exactly what the other branch's own append looked like before the merge.
+	entries[1].PrevHash = "0000000000000000000000000000000000000000000000000000000000000000"
+	entries[1].EntryHash = computeHash(Entry{
+		Timestamp: entries[1].Timestamp, Action: entries[1].Action, Actor: entries[1].Actor,
+		FeatureID: entries[1].FeatureID, Details: entries[1].Details, PrevHash: entries[1].PrevHash,
+	})
+
+	if err := Verify(entries); err != nil {
+		t.Fatalf("a merged log must verify, got %v", err)
+	}
+	if got := ChainBreaks(entries); got != 1 {
+		t.Fatalf("expected 1 merge join, got %d", got)
+	}
+}
+
+func TestChainBreaksCountsNothingOnAnUnmergedLog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	entries := writeEntries(t, path, "create", "move", "update")
+	if got := ChainBreaks(entries); got != 0 {
+		t.Fatalf("expected 0 joins on a linear log, got %d", got)
+	}
+	if got := ChainBreaks(nil); got != 0 {
+		t.Fatalf("expected 0 joins on an empty log, got %d", got)
 	}
 }

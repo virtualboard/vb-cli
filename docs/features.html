@@ -192,7 +192,7 @@
             </div>
             <h3 class="text-base font-semibold mb-2">Audit Logging</h3>
             <p class="text-sm text-muted-foreground leading-relaxed">
-              Append-only JSONL audit log with SHA-256 hash chain at <code class="inline-code">.virtualboard/audit.jsonl</code>. Every feature operation is recorded with tamper-evident hashes for full traceability.
+              Append-only JSONL audit log with SHA-256 hash chain at <code class="inline-code">.virtualboard/audit.jsonl</code>. Every feature operation is recorded with a per-entry SHA-256, so an altered entry is detectable. Ordering is not asserted: branches append concurrently and merges interleave them legitimately.
             </p>
           </div>
 

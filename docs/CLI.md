@@ -284,7 +284,9 @@ verify the integrity of the chain.
 **Output Flags:**
 
 - `--format <fmt>` – One of: `human` (default), `table`, `jsonl`, `json`, `xml`, `agent`. Ignored when `--json` is set.
-- `--verify` – Walk the hash chain and fail with exit code `1` (Validation) on any tampering. Prints `Audit chain verified: OK` when the chain is intact.
+- `--verify` – Recompute every entry's SHA-256 and fail with exit code `1` (Validation) if one was **altered**. Prints `Audit verified: N entries, none altered (M merge joins in the chain)`.
+
+  It detects an altered entry. It does **not** assert ordering and cannot detect a **removed** one. Several branches append to this file, and a merge interleaves their entries legitimately, so the `prev_hash` links fork with nothing wrong — those joins are the `M` in the message, a count of merges rather than of problems.
 
 **Formats:**
 
@@ -319,7 +321,7 @@ vb audit --format jsonl --actor alice --feature-id FTR-0019 --since 2026-04-10
 # Last 5 entries whose details mention "ttl"
 vb audit --contains ttl --limit 5 --tail
 
-# Confirm the audit chain has not been tampered with
+# Confirm no entry has been altered
 vb audit --verify
 
 # Machine-readable summary for an agent or script
