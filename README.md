@@ -13,7 +13,7 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
 - Install IDE integrations with `vb install <ide>` for Claude Code, Cursor, and OpenCode.
 - Create, update, move, delete, and lock features end-to-end via dedicated subcommands (`vb new`, `vb update`, `vb move`, `vb delete`, `vb lock`). `vb new` allocates IDs from the whole repository — sibling git worktrees and every branch's history included — so concurrent boards never mint the same `FTR-####`.
 - Validate both feature specs and system specs with `vb validate`, supporting schema validation for features (workflow, dependencies) and specs (architectural blueprints). Use `--only-features` or `--only-specs` to validate specific types.
-- Inspect the tamper-evident audit log with `vb audit`, supporting filters on every column (action, actor, feature_id, time range, details substring), six output formats (human, table, jsonl, json, xml, agent), and `--verify` to walk the SHA-256 hash chain.
+- Inspect the audit log with `vb audit`, supporting filters on every column (action, actor, feature_id, time range, details substring), six output formats (human, table, jsonl, json, xml, agent), and `--verify` to recompute every entry's SHA-256 and report any that was altered.
 - Regenerate indices in Markdown/JSON/HTML with `vb index`.
 - Apply opinionated templates and fixes (`vb template apply`) while maintaining 100% unit-test coverage and gosec-scanned code.
 - Self-update to the latest version with `vb upgrade`, which automatically detects your platform and downloads the appropriate binary from GitHub releases.
@@ -86,7 +86,7 @@ vb validate --only-specs     # validate only system specs
 vb index                     # emit .virtualboard/features/INDEX.md
 vb audit                     # browse the hash-chained audit log
 vb audit --format table --actor netors --since 2026-04-01
-vb audit --verify            # check the audit chain for tampering
+vb audit --verify            # recompute every entry hash; fails if one was altered
 vb upgrade                   # check for and install the latest version
 ```
 

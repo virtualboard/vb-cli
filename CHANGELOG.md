@@ -2,7 +2,30 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.10.0] - 2026-10-10
+
+### Changed
+
+- **`vb audit --verify` now detects an altered entry instead of failing on every
+  merged board.** It recomputes each entry's own SHA-256; it no longer requires
+  `prev_hash` to name the preceding line.
+
+  The chain check could not hold where the log is used. Several branches append
+  to `.virtualboard/audit.jsonl` at once, each with `prev_hash` pointing at the
+  tip it saw, so a merge interleaves them and the links fork — by construction,
+  with nothing wrong and nobody tampering. Measured on one real repository:
+  **2016 entries, 726 broken links, zero altered entries**, failing since a week
+  after that log was created. A check that is always red detects nothing,
+  because nobody can tell the day it goes red for a real reason.
+
+  Editing `prev_hash` is still caught: it is part of the entry's own hash, so it
+  surfaces as an `entry_hash` mismatch rather than going unnoticed.
+
+  What the flag no longer claims: it does not assert ordering and cannot detect
+  a **removed** entry. The merge joins are now reported as a count —
+  `Audit verified: N entries, none altered (M merge joins in the chain)` — and
+  exposed as `chain_breaks` in `--format json`. README, `docs/CLI.md` and the
+  docs site no longer describe the log as tamper-evident.
 
 ## [v0.9.1] - 2026-09-04
 
