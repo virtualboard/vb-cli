@@ -171,8 +171,13 @@ func TestAuditCommandVerifySuccess(t *testing.T) {
 	writeAuditLog(t, fix)
 	opts, _ := setupOptions(t, fix, false, false, false)
 	out := runAudit(t, fix, opts, "--verify")
-	if !strings.Contains(out, "Audit chain verified: OK") {
+	if !strings.Contains(out, "none altered") {
 		t.Fatalf("expected verification confirmation, got:\n%s", out)
+	}
+	// The join count is stated rather than implied: a clean log and a heavily
+	// merged one must not print the same sentence.
+	if !strings.Contains(out, "merge joins in the chain") {
+		t.Fatalf("expected the merge-join count, got:\n%s", out)
 	}
 }
 

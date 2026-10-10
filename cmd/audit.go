@@ -30,7 +30,12 @@ func newAuditCommand() *cobra.Command {
 
 The audit log is the append-only, SHA-256-chained record of every locking and
 feature-mutation action. Use this command to query it without resorting to
-jq / grep, and to optionally verify the integrity of the hash chain.
+jq / grep, and to optionally check that no entry has been altered.
+
+--verify recomputes each entry's own hash. It detects an ALTERED entry. It does
+not assert ordering and cannot detect a REMOVED one: several branches append to
+this file and a merge interleaves their entries legitimately, so the prev_hash
+links fork with nothing wrong. Those joins are reported as a count.
 
 Examples:
   vb audit                                              # default human format
@@ -39,7 +44,7 @@ Examples:
   vb audit --format json --actor netors --since 2026-04-16
   vb audit --format agent --feature-id FTR-0019
   vb audit --contains "ttl=1" --limit 5 --tail
-  vb audit --verify                                     # exit 1 on tampering`,
+  vb audit --verify                                     # exit 1 if an entry was altered`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := options()
 			if err != nil {
@@ -83,10 +88,12 @@ Examples:
 				Tail:       tail,
 			}.Apply(entries)
 
+			chainBreaks := 0
 			if verify {
 				if verr := audit.Verify(entries); verr != nil {
-					return WrapCLIError(ExitCodeValidation, fmt.Errorf("audit chain verification failed: %w", verr))
+					return WrapCLIError(ExitCodeValidation, fmt.Errorf("audit verification failed: %w", verr))
 				}
+				chainBreaks = audit.ChainBreaks(entries)
 			}
 
 			if opts.JSONOutput {
@@ -96,6 +103,7 @@ Examples:
 					"count":        len(filtered),
 					"entries":      filtered,
 					"verified":     verify,
+					"chain_breaks": chainBreaks,
 					"parse_errors": len(parseErrs),
 				}
 				return respond(cmd, opts, true, "audit entries returned", data)
@@ -107,7 +115,12 @@ Examples:
 			}
 			fmt.Fprint(cmd.OutOrStdout(), content)
 			if verify {
-				fmt.Fprintln(cmd.OutOrStdout(), "Audit chain verified: OK")
+				// Says what was checked, not just that something passed. The
+				// joins are stated because a silent count of zero and a silent
+				// count of 726 should not look the same to a reader.
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"Audit verified: %d entries, none altered (%d merge joins in the chain)\n",
+					len(entries), chainBreaks)
 			}
 			return nil
 		},
@@ -122,7 +135,7 @@ Examples:
 	cmd.Flags().IntVar(&limit, "limit", 0, "Cap the number of returned entries (0 = no cap)")
 	cmd.Flags().BoolVar(&tail, "tail", false, "With --limit, return the last N entries instead of the first N")
 	cmd.Flags().StringVar(&format, "format", "human", "Output format: human, table, jsonl, json, xml, agent. Ignored when --json is set.")
-	cmd.Flags().BoolVar(&verify, "verify", false, "Walk the hash chain and fail on tampering")
+	cmd.Flags().BoolVar(&verify, "verify", false, "Recompute every entry hash and fail if one was altered")
 
 	return cmd
 }
