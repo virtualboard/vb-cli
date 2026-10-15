@@ -15,7 +15,7 @@ import (
 const maxSchemaBytes int64 = 256 << 10
 
 const (
-	FeatureSHA256    = "bae8d4d3a128f4f5d3fdb08d74275f2c4e83e3e519a0d31cd2186411881a0287"
+	FeatureSHA256    = "995c35a8a32d3823232e7abecf3ff6e7c4f0c6b808c56fe87a8e043c55cd01f4"
 	SystemSpecSHA256 = "d3d1da42ab94d58b2ff2ced0e3004db2787758ef03e257bdbc9e2670c76a9e89"
 )
 

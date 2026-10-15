@@ -17,6 +17,7 @@ type FrontMatter struct {
 	Title               string   `yaml:"title" json:"title"`
 	Status              string   `yaml:"status" json:"status"`
 	Owner               string   `yaml:"owner" json:"owner"`
+	Role                string   `yaml:"role,omitempty" json:"role,omitempty"`
 	ImplementationOwner string   `yaml:"implementation_owner" json:"implementation_owner"`
 	Priority            string   `yaml:"priority" json:"priority"`
 	Complexity          string   `yaml:"complexity" json:"complexity"`

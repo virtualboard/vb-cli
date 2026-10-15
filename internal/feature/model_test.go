@@ -78,6 +78,29 @@ func TestParseAndEncode(t *testing.T) {
 	}
 }
 
+func TestParseAndEncodeOptionalRole(t *testing.T) {
+	content := strings.Replace(sampleFeature, "owner: tester", "owner: tester\nrole: backend_dev", 1)
+	feat, err := Parse("sample.md", []byte(content))
+	if err != nil {
+		t.Fatalf("parse role: %v", err)
+	}
+	if feat.FrontMatter.Role != "backend_dev" {
+		t.Fatalf("role = %q, want backend_dev", feat.FrontMatter.Role)
+	}
+	encoded, err := feat.Encode()
+	if err != nil {
+		t.Fatalf("encode role: %v", err)
+	}
+	if !strings.Contains(string(encoded), "role: backend_dev") {
+		t.Fatalf("encoded feature dropped role: %s", encoded)
+	}
+
+	withoutRole, err := Parse("sample.md", []byte(sampleFeature))
+	if err != nil || withoutRole.FrontMatter.Role != "" {
+		t.Fatalf("legacy feature without role should remain valid: feature=%+v err=%v", withoutRole, err)
+	}
+}
+
 func TestParseAndEncodePreserveCRLFBody(t *testing.T) {
 	crlf := strings.ReplaceAll(sampleFeature, "\n", "\r\n")
 	_, expectedBody, ok := splitFrontmatter([]byte(crlf))

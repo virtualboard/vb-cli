@@ -4,6 +4,10 @@
 
 `vb` is a command-line interface for managing VirtualBoard feature specifications. It streamlines feature lifecycle tasks such as creation, updates, validation, indexing, and lock management within a repository structured around the VirtualBoard spec format.
 
+Feature frontmatter may include an optional `role` handle (for example,
+`role: backend_dev`) to select an implementation role explicitly. The value is
+validated against the workspace's fixed CLI schema and preserved during edits.
+
 ## Global Flags
 
 - `--json` – Output results as structured JSON.
