@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added
 
+- `vb report render` for contextual-escaped HTML reports from JSON data, with explicit opt-in for reviewed HTML fragments and protected output publication.
 - Strict, fence-aware feature-body parsing for exactly one ordered copy of the
   14 canonical sections inside one untrusted-content boundary, including the
   single unambiguous historical Links-boundary repair.

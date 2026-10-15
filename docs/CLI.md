@@ -451,6 +451,16 @@ vb --actor migration-admin migrate lifecycle-metadata \
   --status-changed FTR-0042=2026-07-01
 ```
 
+### `vb report render`
+
+Render a JSON data object with a named HTML template. Template evaluation uses contextual escaping; raw HTML fragments require both an explicit template annotation and `--allow-html`.
+
+```bash
+vb report render --template progress.html --data progress.json --output reports/progress.html
+```
+
+Use `--template-dir` to select another template directory. Existing output files are protected unless `--force` is supplied. `--dry-run` renders and validates without writing the output.
+
 ### `vb version`
 Print the CLI semantic version (supports JSON output).
 

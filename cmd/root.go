@@ -89,4 +89,5 @@ func registerCommands() {
 	rootCmd.AddCommand(newUpgradeCommand())
 	rootCmd.AddCommand(newAuditCommand())
 	rootCmd.AddCommand(newMigrateCommand())
+	rootCmd.AddCommand(newReportCommand())
 }

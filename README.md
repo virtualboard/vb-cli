@@ -25,6 +25,7 @@ VirtualBoard CLI (`vb`) is the workspace companion for authoring, validating, an
   lifecycle fallback is reserved for explicitly versioned pre-v0.8 layouts.
 - Validate both feature specs and system specs with `vb validate`, supporting schema validation for features (workflow, dependencies) and specs (architectural blueprints). Use `--only-features` or `--only-specs` to validate specific types.
 - Inspect the tamper-evident audit log with `vb audit`, supporting filters on every column (action, actor, feature_id, time range, details substring), six output formats (human, table, jsonl, json, xml, agent), and `--verify` to walk the SHA-256 hash chain.
+- Render validated HTML reports from JSON data with `vb report render`; templates use contextual escaping and require explicit opt-in for reviewed raw HTML fragments.
 - Regenerate deterministic indices in Markdown/JSON/HTML with `vb index`, or use `vb index --check` as a no-write CI drift gate.
 - Repair legacy lifecycle provenance with the preflighted, auditable `vb migrate lifecycle-metadata` command.
 - Apply opinionated templates and fixes (`vb template apply`) behind a measured coverage gate and gosec-scanned code.
@@ -119,6 +120,7 @@ vb index --check             # fail without writing when the index is stale
 vb audit                     # browse the hash-chained audit log
 vb audit --format table --actor netors --since 2026-04-01
 vb audit --verify            # check the audit chain for tampering
+vb report render --template progress.html --data progress.json --output reports/progress.html
 vb upgrade                   # atomic self-update on supported Linux/macOS targets
 ```
 
